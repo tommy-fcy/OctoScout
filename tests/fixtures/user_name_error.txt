@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/user/train.py", line 23, in <module>
+    trainer = Trainr(model=model, args=training_args)
+NameError: name 'Trainr' is not defined

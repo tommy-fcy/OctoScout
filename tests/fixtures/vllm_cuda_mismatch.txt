@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/home/user/serve.py", line 5, in <module>
+    from vllm import LLM
+  File "/home/user/.venv/lib/python3.10/site-packages/vllm/__init__.py", line 3, in <module>
+    from vllm.engine.llm_engine import LLMEngine
+  File "/home/user/.venv/lib/python3.10/site-packages/vllm/engine/llm_engine.py", line 15, in <module>
+    from vllm.executor.gpu_executor import GPUExecutor
+  File "/home/user/.venv/lib/python3.10/site-packages/vllm/executor/gpu_executor.py", line 7, in <module>
+    from vllm._C import ops
+ImportError: /home/user/.venv/lib/python3.10/site-packages/vllm/_C.cpython-310-x86_64-linux-gnu.so: undefined symbol: _ZN3c104cuda9SetDeviceEi. This is likely caused by a mismatch between the CUDA version used to compile vLLM and the CUDA version installed on your system.
