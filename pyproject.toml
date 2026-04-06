@@ -23,11 +23,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Debuggers",
 ]
-[project.urls]
-Homepage = "https://github.com/tommy-fcy/OctoScout"
-Repository = "https://github.com/tommy-fcy/OctoScout"
-Issues = "https://github.com/tommy-fcy/OctoScout/issues"
-
 dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
@@ -36,6 +31,11 @@ dependencies = [
     "openai>=1.50.0",
     "pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/tommy-fcy/OctoScout"
+Repository = "https://github.com/tommy-fcy/OctoScout"
+Issues = "https://github.com/tommy-fcy/OctoScout/issues"
 
 [project.optional-dependencies]
 dev = [
