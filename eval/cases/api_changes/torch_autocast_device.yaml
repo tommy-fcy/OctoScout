@@ -1,0 +1,29 @@
+id: torch_autocast_device_arg
+category: api_signature_change
+difficulty: easy
+source: "Common migration issue: torch.cuda.amp.autocast deprecated in PyTorch 2.4+"
+description: >
+  torch.cuda.amp.autocast was deprecated and removed. Users must migrate to
+  torch.amp.autocast with explicit device_type argument.
+
+input:
+  traceback: |
+    Traceback (most recent call last):
+      File 'train.py', line 45, in train_step
+        with torch.cuda.amp.autocast():
+    FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  env_packages:
+    torch: "2.6.0"
+
+expected:
+  triage: upstream_issue
+  problem_type: api_signature_change
+  root_cause_keywords:
+    - "autocast"
+    - "deprecated"
+    - "torch.amp.autocast"
+  fix_must_contain:
+    - "torch.amp.autocast"
+  fix_must_not_contain: []
+  valid_issue_refs: []
+  confidence_min: 0.5

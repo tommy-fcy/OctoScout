@@ -34,6 +34,7 @@ class GitHubClient:
             base_url=_GITHUB_API,
             headers=headers,
             timeout=30.0,
+            follow_redirects=True,
         )
         self._rate = RateLimitState()
         self._cache: dict[str, dict] = {}
@@ -117,6 +118,104 @@ class GitHubClient:
         data = resp.json()
         self._cache[cache_key] = data
         return data
+
+    async def get_issue_comments_with_reactions(
+        self, repo: str, number: int, max_pages: int = 3,
+    ) -> list[dict]:
+        """Get all comments with reaction data (for comment scoring).
+
+        Uses the reactions preview header to include reaction counts per comment.
+        Paginates up to max_pages (30 comments per page).
+        """
+        all_comments: list[dict] = []
+        for page in range(1, max_pages + 1):
+            resp = await self._client.get(
+                f"/repos/{repo}/issues/{number}/comments",
+                params={"per_page": 30, "page": page},
+                headers={"Accept": "application/vnd.github.squirrel-girl-preview+json"},
+            )
+            self._update_rate_limit(resp)
+            resp.raise_for_status()
+
+            data = resp.json()
+            if not data:
+                break
+            all_comments.extend(data)
+
+            link_header = resp.headers.get("Link", "")
+            if 'rel="next"' not in link_header:
+                break
+
+        return all_comments
+
+    async def list_issues(
+        self,
+        repo: str,
+        state: str = "closed",
+        labels: str | None = None,
+        per_page: int = 100,
+        page: int = 1,
+    ) -> tuple[list[dict], bool]:
+        """List issues using the Issues API (for bulk crawling).
+
+        Unlike search_issues(), this uses the general rate limit pool (5000/hr)
+        and has no result cap.
+
+        Returns:
+            Tuple of (raw issue dicts, has_next_page).
+        """
+        import asyncio
+
+        # Respect general rate limit
+        if self._rate.remaining < 10:
+            wait = max(0, self._rate.reset_at - time.time())
+            if wait > 0:
+                await asyncio.sleep(wait + 1)
+
+        params: dict[str, str | int] = {
+            "state": state,
+            "per_page": per_page,
+            "page": page,
+            "sort": "updated",
+            "direction": "desc",
+        }
+        if labels:
+            params["labels"] = labels
+
+        resp = await self._client.get(f"/repos/{repo}/issues", params=params)
+        self._update_rate_limit(resp)
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        # Check for next page via Link header
+        link_header = resp.headers.get("Link", "")
+        has_next = 'rel="next"' in link_header
+
+        return data, has_next
+
+    async def create_issue(
+        self, repo: str, title: str, body: str, labels: list[str] | None = None,
+    ) -> dict:
+        """Create a new issue in a repository. Requires a token with repo scope."""
+        payload: dict = {"title": title, "body": body}
+        if labels:
+            payload["labels"] = labels
+
+        resp = await self._client.post(f"/repos/{repo}/issues", json=payload)
+        self._update_rate_limit(resp)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def post_comment(self, repo: str, number: int, body: str) -> dict:
+        """Post a comment on an existing issue. Requires a token with repo scope."""
+        resp = await self._client.post(
+            f"/repos/{repo}/issues/{number}/comments",
+            json={"body": body},
+        )
+        self._update_rate_limit(resp)
+        resp.raise_for_status()
+        return resp.json()
 
     @property
     def rate_limit_remaining(self) -> int:

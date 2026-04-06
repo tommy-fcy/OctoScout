@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "octoscout": {
+      "command": "python",
+      "args": ["-m", "octoscout.mcp.server"],
+      "env": {
+        "GITHUB_TOKEN": "${user_config.github_token}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}"
+      }
+    }
+  }
+}

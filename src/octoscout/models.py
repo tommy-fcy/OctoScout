@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # LLM Provider models
 # ---------------------------------------------------------------------------
@@ -133,7 +132,7 @@ class ParsedTraceback:
     involved_packages: set[str] = field(default_factory=set)
 
     def format_for_llm(self) -> str:
-        lines = [f"## Parsed Traceback"]
+        lines = ["## Parsed Traceback"]
         lines.append(f"Exception: {self.exception_type}: {self.exception_message}")
         if self.root_package:
             lines.append(f"Root package: {self.root_package}")

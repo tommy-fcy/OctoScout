@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from octoscout.models import EnvSnapshot, ParsedTraceback
+from octoscout.models import EnvSnapshot, GitHubIssueRef, ParsedTraceback
 
 # Mapping of common PyPI package names to GitHub repos
 PACKAGE_REPO_MAP: dict[str, str] = {
@@ -35,6 +35,8 @@ PACKAGE_REPO_MAP: dict[str, str] = {
     "flax": "google/flax",
     "diffusers": "huggingface/diffusers",
     "trl": "huggingface/trl",
+    "llamafactory": "hiyouga/LLaMA-Factory",
+    "llmtuner": "hiyouga/LLaMA-Factory",
     "sentence_transformers": "UKPLab/sentence-transformers",
     "langchain": "langchain-ai/langchain",
     "llamacpp": "ggml-org/llama.cpp",
@@ -127,8 +129,13 @@ def build_search_queries(
 
 def infer_repo(package_name: str) -> str | None:
     """Infer the GitHub repo for a Python package name."""
-    normalized = package_name.lower().replace("-", "_")
-    return PACKAGE_REPO_MAP.get(normalized)
+    name = package_name.lower().strip()
+    # Try both dash and underscore forms
+    return (
+        PACKAGE_REPO_MAP.get(name)
+        or PACKAGE_REPO_MAP.get(name.replace("-", "_"))
+        or PACKAGE_REPO_MAP.get(name.replace("_", "-"))
+    )
 
 
 def _truncate_error_message(msg: str, max_len: int = 80) -> str:
@@ -165,3 +172,30 @@ def _extract_key_terms(tb: ParsedTraceback) -> list[str]:
     terms.extend(quoted[:2])
 
     return terms
+
+
+# ---------------------------------------------------------------------------
+# Result merging (realtime + local index)
+# ---------------------------------------------------------------------------
+
+
+def merge_search_results(
+    realtime: list[GitHubIssueRef],
+    local: list[GitHubIssueRef],
+    max_results: int = 15,
+) -> list[GitHubIssueRef]:
+    """Merge and deduplicate results from realtime search and local index.
+
+    For duplicates (same repo + number), keeps the higher relevance_score.
+    Returns up to max_results sorted by score descending.
+    """
+    seen: dict[tuple[str, int], GitHubIssueRef] = {}
+
+    for issue in realtime + local:
+        key = (issue.repo, issue.number)
+        existing = seen.get(key)
+        if existing is None or issue.relevance_score > existing.relevance_score:
+            seen[key] = issue
+
+    merged = sorted(seen.values(), key=lambda i: i.relevance_score, reverse=True)
+    return merged[:max_results]

@@ -1,0 +1,22 @@
+{
+  "name": "octoscout",
+  "version": "0.1.0",
+  "description": "LLM-Powered GitHub Issues Agent: diagnose Python/ML version compatibility errors, search issues, and give back to the community",
+  "author": {
+    "name": "OctoScout Contributors"
+  },
+  "repository": "https://github.com/tommy-fcy/OctoScout",
+  "license": "MIT",
+  "keywords": ["github", "debugging", "ml", "compatibility", "python"],
+  "mcpServers": "../.mcp.json",
+  "userConfig": {
+    "github_token": {
+      "description": "GitHub personal access token (for issue search & posting)",
+      "sensitive": true
+    },
+    "anthropic_api_key": {
+      "description": "Anthropic API key for LLM-powered diagnosis",
+      "sensitive": true
+    }
+  }
+}

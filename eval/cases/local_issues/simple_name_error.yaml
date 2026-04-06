@@ -1,0 +1,28 @@
+id: simple_name_error
+category: user_code_bug
+difficulty: easy
+source: "Synthetic local code bug"
+description: >
+  Simple NameError from user code — undefined variable. Should be diagnosed
+  as a local issue without needing GitHub search.
+
+input:
+  traceback: |
+    Traceback (most recent call last):
+      File 'my_script.py', line 8, in <module>
+        result = modle.predict(data)
+    NameError: name 'modle' is not defined. Did you mean: 'model'?
+  env_packages: {}
+
+expected:
+  triage: local_issue
+  problem_type: user_code_bug
+  root_cause_keywords:
+    - "typo"
+    - "modle"
+    - "model"
+  fix_must_contain:
+    - "model"
+  fix_must_not_contain: []
+  valid_issue_refs: []
+  confidence_min: 0.8

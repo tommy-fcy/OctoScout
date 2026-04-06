@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 import os
 
 import anthropic
 
 from octoscout.models import AgentResponse, Message, Role, ToolCall, ToolDefinition
+
+_MAX_RETRIES = 3
+_RETRYABLE_KEYWORDS = {"overloaded", "529", "rate", "connection", "timeout", "503"}
 
 
 class ClaudeProvider:
@@ -15,15 +18,29 @@ class ClaudeProvider:
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-haiku-4-5",
         api_key: str | None = None,
+        auth_token: str | None = None,
+        base_url: str | None = None,
         max_tokens: int = 4096,
     ):
         self.model = model
         self.max_tokens = max_tokens
-        self._client = anthropic.AsyncAnthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
-        )
+
+        resolved_auth_token = auth_token or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        resolved_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        resolved_base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL") or None
+
+        if resolved_auth_token:
+            self._client = anthropic.AsyncAnthropic(
+                auth_token=resolved_auth_token,
+                base_url=resolved_base_url,
+            )
+        else:
+            self._client = anthropic.AsyncAnthropic(
+                api_key=resolved_api_key,
+                base_url=resolved_base_url,
+            )
 
     async def chat_with_tools(
         self,
@@ -43,7 +60,7 @@ class ClaudeProvider:
         if system:
             kwargs["system"] = system
 
-        response = await self._client.messages.create(**kwargs)
+        response = await self._call_with_retry(**kwargs)
         return self._parse_response(response)
 
     async def chat(
@@ -61,8 +78,21 @@ class ClaudeProvider:
         if system:
             kwargs["system"] = system
 
-        response = await self._client.messages.create(**kwargs)
+        response = await self._call_with_retry(**kwargs)
         return self._parse_response(response)
+
+    async def _call_with_retry(self, **kwargs):
+        """Call the API with exponential backoff retry on transient errors."""
+        for attempt in range(_MAX_RETRIES):
+            try:
+                return await self._client.messages.create(**kwargs)
+            except Exception as e:
+                err = str(e).lower()
+                is_retryable = any(kw in err for kw in _RETRYABLE_KEYWORDS)
+                if is_retryable and attempt < _MAX_RETRIES - 1:
+                    await asyncio.sleep(2 ** (attempt + 1))
+                    continue
+                raise
 
     # ------------------------------------------------------------------
     # Internal conversion helpers

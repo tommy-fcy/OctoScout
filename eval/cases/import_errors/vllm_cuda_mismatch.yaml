@@ -1,0 +1,33 @@
+id: vllm_cuda_mismatch
+category: version_mismatch
+difficulty: medium
+source: "Common vllm installation issue"
+description: >
+  vllm fails to import due to CUDA version mismatch between the installed
+  vllm wheel and the system CUDA toolkit.
+
+input:
+  traceback: |
+    Traceback (most recent call last):
+      File 'serve.py', line 1, in <module>
+        from vllm import LLM
+      File '/opt/venv/lib/python3.10/site-packages/vllm/__init__.py', line 3, in <module>
+        from vllm.engine.llm_engine import LLMEngine
+      File '/opt/venv/lib/python3.10/site-packages/vllm/engine/llm_engine.py', line 8, in <module>
+        import vllm._C
+    ImportError: /opt/venv/lib/python3.10/site-packages/vllm/_C.cpython-310-x86_64-linux-gnu.so: undefined symbol: _ZN3c104cuda9SetDeviceEi
+  env_packages:
+    vllm: "0.6.0"
+    torch: "2.4.0"
+
+expected:
+  triage: upstream_issue
+  problem_type: version_mismatch
+  root_cause_keywords:
+    - "CUDA"
+    - "mismatch"
+    - "undefined symbol"
+  fix_must_contain: []
+  fix_must_not_contain: []
+  valid_issue_refs: []
+  confidence_min: 0.5

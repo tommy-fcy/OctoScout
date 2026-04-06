@@ -16,5 +16,30 @@ env/
 .coverage
 htmlcov/
 .ruff_cache/
-data/matrix/*.json
 .mypy_cache/
+
+# Matrix data (large, user-generated)
+data/matrix/raw/
+data/matrix/extracted/
+data/matrix/extracted_wo_comments/
+data/matrix/index/
+data/matrix/matrix.json
+data/matrix/heatmap.html
+
+# Secrets — NEVER commit these
+credentials.py
+secrets.*
+env.sh
+*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code local state (user-specific, not project config)
+.claude/worktrees/
+.claude/settings.local.json
+
+# Redundant (pyproject.toml is the source of truth)
+requirements.txt

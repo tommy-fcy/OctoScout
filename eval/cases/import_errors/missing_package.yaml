@@ -1,0 +1,30 @@
+id: missing_accelerate_package
+category: import_error
+difficulty: easy
+source: "Common missing optional dependency"
+description: >
+  transformers requires 'accelerate' for certain operations but it's not installed.
+
+input:
+  traceback: |
+    Traceback (most recent call last):
+      File 'train.py', line 5, in <module>
+        from transformers import AutoModelForCausalLM
+      File '/opt/venv/lib/python3.10/site-packages/transformers/utils/import_utils.py', line 1234, in _get_module
+        raise ImportError(
+    ImportError: Using `low_cpu_mem_usage=True` or a `device_map` requires Accelerate: `pip install 'accelerate>=0.26.0'`
+  env_packages:
+    transformers: "4.44.0"
+
+expected:
+  triage: local_issue
+  problem_type: import_error
+  root_cause_keywords:
+    - "accelerate"
+    - "not installed"
+    - "pip install"
+  fix_must_contain:
+    - "accelerate"
+  fix_must_not_contain: []
+  valid_issue_refs: []
+  confidence_min: 0.8

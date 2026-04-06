@@ -1,0 +1,26 @@
+id: list_index_out_of_range
+category: user_code_bug
+difficulty: easy
+source: "Synthetic local code bug"
+description: >
+  IndexError from user code. Clear local issue.
+
+input:
+  traceback: |
+    Traceback (most recent call last):
+      File 'process.py', line 15, in process_batch
+        item = batch[batch_size]
+    IndexError: list index out of range
+  env_packages: {}
+
+expected:
+  triage: local_issue
+  problem_type: user_code_bug
+  root_cause_keywords:
+    - "index"
+    - "out of range"
+    - "batch_size"
+  fix_must_contain: []
+  fix_must_not_contain: []
+  valid_issue_refs: []
+  confidence_min: 0.7

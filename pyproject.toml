@@ -23,13 +23,18 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Debuggers",
 ]
+[project.urls]
+Homepage = "https://github.com/tommy-fcy/OctoScout"
+Repository = "https://github.com/tommy-fcy/OctoScout"
+Issues = "https://github.com/tommy-fcy/OctoScout/issues"
+
 dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
     "httpx>=0.27.0",
-    "pydantic>=2.0.0",
     "anthropic>=0.40.0",
     "openai>=1.50.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +61,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]  # Line length handled by formatter, not linter
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

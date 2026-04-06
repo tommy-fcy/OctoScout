@@ -1,0 +1,32 @@
+id: transformers_trainer_tokenizer_v5
+category: api_signature_change
+difficulty: medium
+source: "Real bug: transformers PR #43733"
+description: >
+  Trainer.__init__() no longer accepts 'tokenizer' keyword in transformers v5+.
+  Replaced by 'processing_class'.
+
+input:
+  traceback: |
+    Traceback (most recent call last):
+      File 'train.py', line 12, in <module>
+        trainer = Trainer(model=model, args=args, tokenizer=tokenizer)
+    TypeError: Trainer.__init__() got an unexpected keyword argument 'tokenizer'
+  env_packages:
+    transformers: "5.0.0"
+    torch: "2.6.0"
+
+expected:
+  triage: upstream_issue
+  problem_type: api_signature_change
+  root_cause_keywords:
+    - "processing_class"
+    - "tokenizer"
+    - "removed"
+  fix_must_contain:
+    - "processing_class"
+  fix_must_not_contain: []
+  valid_issue_refs:
+    - repo: "huggingface/transformers"
+      number: 43733
+  confidence_min: 0.6

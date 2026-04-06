@@ -95,12 +95,16 @@ def extract_function_and_arg_from_typeerror(message: str) -> tuple[str | None, s
 
 def _import_dotted_path(path: str):
     """Import and return the object at a dotted path like 'pkg.mod.Class.method'."""
+    import warnings
+
     parts = path.split(".")
     obj = None
     for i in range(len(parts), 0, -1):
         module_path = ".".join(parts[:i])
         try:
-            obj = importlib.import_module(module_path)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                obj = importlib.import_module(module_path)
             for attr_name in parts[i:]:
                 obj = getattr(obj, attr_name)
             return obj

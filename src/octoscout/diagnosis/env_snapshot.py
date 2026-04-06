@@ -52,7 +52,10 @@ def _get_installed_packages() -> dict[str, str]:
         )
         if result.returncode == 0:
             packages = json.loads(result.stdout)
-            return {p["name"].lower(): p["version"] for p in packages}
+            return {
+                p["name"].lower().replace("_", "-"): p["version"]
+                for p in packages
+            }
     except Exception:
         pass
     return {}

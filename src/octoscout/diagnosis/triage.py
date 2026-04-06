@@ -21,6 +21,9 @@ _USER_CODE_EXCEPTIONS = {"NameError", "SyntaxError", "IndentationError", "Unboun
 # Exception types suggesting upstream / API change
 _UPSTREAM_EXCEPTIONS = {"TypeError", "AttributeError", "ImportError", "ModuleNotFoundError"}
 
+# Deprecation / future warnings — these indicate API changes in upstream libraries
+_DEPRECATION_EXCEPTIONS = {"DeprecationWarning", "FutureWarning", "PendingDeprecationWarning"}
+
 
 def triage(
     tb: ParsedTraceback,
@@ -66,6 +69,15 @@ def triage(
         upstream_score += 0.3
         reasons.append("'unexpected keyword argument' strongly suggests API signature change")
 
+    # --- Rule 4b: Deprecation/FutureWarning — upstream API is changing ---
+    if exc_base in _DEPRECATION_EXCEPTIONS:
+        upstream_score += 0.4
+        reasons.append(f"{exc_base} indicates a library API deprecation/change")
+        # Counteract local_score from is_user_code — the warning is emitted at the
+        # call site but the root cause is the library deprecating the API.
+        if tb.is_user_code:
+            local_score -= 0.2
+
     # --- Rule 5: ImportError / ModuleNotFoundError ---
     if exc_base in ("ImportError", "ModuleNotFoundError"):
         if not tb.is_user_code:
@@ -105,6 +117,10 @@ def _infer_problem_type(tb: ParsedTraceback) -> ProblemType:
     if exc == "TypeError" and ("argument" in msg or "positional" in msg):
         return ProblemType.API_SIGNATURE_CHANGE
     if exc == "AttributeError":
+        return ProblemType.API_SIGNATURE_CHANGE
+    if exc in _DEPRECATION_EXCEPTIONS:
+        if "deprecated" in msg or "will be removed" in msg or "use" in msg:
+            return ProblemType.API_SIGNATURE_CHANGE
         return ProblemType.API_SIGNATURE_CHANGE
     if exc in ("ImportError", "ModuleNotFoundError"):
         return ProblemType.IMPORT_ERROR

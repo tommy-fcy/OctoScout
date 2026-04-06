@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from octoscout.models import ToolDefinition, ToolParameter
@@ -42,6 +41,17 @@ AGENT_TOOLS: list[ToolDefinition] = [
             ToolParameter(name="issue_number", type="string", description="Issue number"),
         ],
     ),
+    ToolDefinition(
+        name="check_compatibility",
+        description="Query the compatibility matrix for known issues between package version pairs. Returns compatibility scores and known problems.",
+        parameters=[
+            ToolParameter(
+                name="packages",
+                type="string",
+                description="Comma-separated pkg==version pairs, e.g. 'transformers==4.55.0,torch==2.3.0'",
+            ),
+        ],
+    ),
 ]
 
 
@@ -52,10 +62,12 @@ AGENT_TOOLS: list[ToolDefinition] = [
 class ToolExecutor:
     """Execute agent tool calls and return results."""
 
-    def __init__(self, github_client, env_snapshot_fn):
+    def __init__(self, github_client, env_snapshot_fn, matrix=None):
         self._github = github_client
         self._env_snapshot_fn = env_snapshot_fn
         self._env_cache: str | None = None
+        self._matrix = matrix  # CompatibilityMatrix or None
+        self.found_issues: list = []  # GitHubIssueRef objects found during session
 
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """Execute a tool call and return the result as a string."""
@@ -95,6 +107,13 @@ class ToolExecutor:
         if not issues:
             return "No issues found matching the query."
 
+        # Track found issues (deduplicate by repo+number)
+        seen = {(i.repo, i.number) for i in self.found_issues}
+        for issue in issues:
+            if (issue.repo, issue.number) not in seen:
+                self.found_issues.append(issue)
+                seen.add((issue.repo, issue.number))
+
         lines = [f"Found {len(issues)} issues:\n"]
         for i, issue in enumerate(issues, 1):
             lines.append(f"{i}. [{issue.state}] {issue.title}")
@@ -129,6 +148,46 @@ class ToolExecutor:
                 lines.append(_truncate(c.get("body", "") or "", 800))
 
         return "\n".join(lines)
+
+
+    async def _tool_check_compatibility(self, args: dict) -> str:
+        if self._matrix is None:
+            return "Compatibility matrix not available. It has not been built yet."
+
+        packages_str = args.get("packages", "")
+        pairs: list[tuple[str, str]] = []
+        for part in packages_str.split(","):
+            part = part.strip()
+            if "==" in part:
+                name, version = part.split("==", 1)
+                pairs.append((name.strip(), version.strip()))
+
+        if len(pairs) < 2:
+            return "Need at least 2 package==version pairs to check compatibility."
+
+        from itertools import combinations
+
+        lines: list[str] = []
+        for (pkg_a, ver_a), (pkg_b, ver_b) in combinations(pairs, 2):
+            result = self._matrix.query_pair(pkg_a, ver_a, pkg_b, ver_b)
+            if result:
+                status = "OK" if result.score >= 0.7 else "RISK"
+                lines.append(
+                    f"{pkg_a}=={ver_a} + {pkg_b}=={ver_b}: "
+                    f"score={result.score:.2f} ({status}), {result.issue_count} known issues"
+                )
+                for p in result.problems[:3]:
+                    lines.append(f"  - [{p.severity}] {p.summary}")
+                    if p.solution:
+                        lines.append(f"    Fix: {p.solution}")
+                    if p.source_issues:
+                        lines.append(f"    Source: {', '.join(p.source_issues)}")
+            else:
+                lines.append(
+                    f"{pkg_a}=={ver_a} + {pkg_b}=={ver_b}: No data in matrix"
+                )
+
+        return "\n".join(lines) if lines else "No compatibility data found."
 
 
 def _truncate(text: str, max_len: int) -> str:
