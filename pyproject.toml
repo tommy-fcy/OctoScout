@@ -71,4 +71,5 @@ ignore = ["E501"]  # Line length handled by formatter, not linter
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
