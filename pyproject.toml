@@ -55,6 +55,12 @@ octoscout = "octoscout.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["src/octoscout"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/octoscout/prompts" = "octoscout/prompts"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/octoscout", "tests", "README.md", "LICENSE"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100
