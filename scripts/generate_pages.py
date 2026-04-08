@@ -23,27 +23,18 @@ def main():
         b_pkg, b_ver = parts[1].split("==", 1)
         pkg_versions[a_pkg].add(a_ver)
         pkg_versions[b_pkg].add(b_ver)
-        # Collect ALL source issues across all problems for this pair
-        all_sources = []
-        seen_sources: set[str] = set()
-        for p in entry.known_problems:
-            for src in p.source_issues:
-                if src and src not in seen_sources:
-                    all_sources.append(src)
-                    seen_sources.add(src)
-
         pair_data[key] = {
             "s": round(entry.score, 2),
             "n": entry.issue_count,
             "p": [
                 {
-                    "m": p.summary[:80],
+                    "m": p.summary[:150],
                     "v": p.severity,
-                    "f": (p.solution[:60] if p.solution else ""),
+                    "f": (p.solution[:150] if p.solution else ""),
+                    "i": (p.source_issues[0] if p.source_issues else ""),
                 }
-                for p in entry.known_problems[:5]
+                for p in entry.known_problems  # ALL problems, no limit
             ],
-            "issues": all_sources,  # all GitHub issue refs for this pair
         }
 
     pkg_json = json.dumps(
@@ -121,9 +112,7 @@ td.nd{background:#161b22;color:#30363d;cursor:default}
 .cta-text{color:#8b949e;font-size:13px}
 .cta-btn{background:#238636;color:#fff;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;transition:background .2s}
 .cta-btn:hover{background:#2ea043}
-.issue-list{margin-top:8px;padding-top:6px;border-top:1px solid #21262d}
-.issue-list a{color:#58a6ff;font-size:11px;text-decoration:none;display:inline-block;margin:2px 8px 2px 0}
-.issue-list a:hover{text-decoration:underline}"""
+"""
 
 BODY_HTML = """\
 <h1>OctoScout &mdash; ML Compatibility Matrix</h1>
@@ -216,16 +205,12 @@ heatmap.addEventListener("mouseover",e=>{const td=e.target.closest("td[data-key]
   if(!td){tooltip.classList.remove("visible");return}
   const k=td.dataset.key,d=D[k];if(!d)return;
   let ph="";d.p.forEach(p=>{
+    const url=p.i?"https://github.com/"+p.i.replace("#","/issues/"):"";
     ph+='<div class="prob"><span class="sev '+sevCls(p.v)+'">'+p.v.toUpperCase()+"</span> "+p.m+
     (p.f?'<div class="fix">Fix: '+p.f+"</div>":"")+
+    (url?'<div style="margin-top:3px"><a href="'+url+'" target="_blank" style="color:#58a6ff;font-size:11px;text-decoration:none">'+p.i+"</a></div>":"")+
     "</div>"});
-  let issueHtml="";
-  if(d.issues&&d.issues.length>0){
-    issueHtml='<div class="issue-list"><strong style="color:#8b949e;font-size:12px">Related Issues ('+d.issues.length+'):</strong><br>';
-    d.issues.forEach(ref=>{const url="https://github.com/"+ref.replace("#","/issues/");
-      issueHtml+='<a href="'+url+'" target="_blank">'+ref+"</a>"});
-    issueHtml+="</div>"}
-  tooltip.innerHTML="<h3>"+k.replace("+"," + ")+'</h3><div class="score" style="color:'+sc(d.s)+'">'+d.s.toFixed(2)+" ("+d.n+" issues)</div>"+ph+issueHtml;
+  tooltip.innerHTML="<h3>"+k.replace("+"," + ")+'</h3><div class="score" style="color:'+sc(d.s)+'">'+d.s.toFixed(2)+" ("+d.n+" issues)</div>"+ph;
   tooltip.classList.add("visible");
   // Position: prefer right of cell, fallback left; vertically centered
   const r=td.getBoundingClientRect();
