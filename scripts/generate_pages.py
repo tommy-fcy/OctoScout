@@ -23,6 +23,15 @@ def main():
         b_pkg, b_ver = parts[1].split("==", 1)
         pkg_versions[a_pkg].add(a_ver)
         pkg_versions[b_pkg].add(b_ver)
+        # Collect ALL source issues across all problems for this pair
+        all_sources = []
+        seen_sources: set[str] = set()
+        for p in entry.known_problems:
+            for src in p.source_issues:
+                if src and src not in seen_sources:
+                    all_sources.append(src)
+                    seen_sources.add(src)
+
         pair_data[key] = {
             "s": round(entry.score, 2),
             "n": entry.issue_count,
@@ -31,10 +40,10 @@ def main():
                     "m": p.summary[:80],
                     "v": p.severity,
                     "f": (p.solution[:60] if p.solution else ""),
-                    "i": (p.source_issues[0] if p.source_issues else ""),
                 }
-                for p in entry.known_problems[:3]
+                for p in entry.known_problems[:5]
             ],
+            "issues": all_sources,  # all GitHub issue refs for this pair
         }
 
     pkg_json = json.dumps(
@@ -108,9 +117,13 @@ td.nd{background:#161b22;color:#30363d;cursor:default}
 .legend{display:flex;gap:3px;align-items:center;margin-left:auto;font-size:11px}
 .lb{width:18px;height:12px;border-radius:2px}
 .legend span{color:#8b949e}
-.cta{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;margin-bottom:16px;text-align:center;font-size:13px}
-.cta a{color:#58a6ff;text-decoration:none;font-weight:600}
-.cta code{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}"""
+.cta{background:linear-gradient(135deg,#161b22 0%,#1a2332 100%);border:1px solid #30363d;border-radius:10px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap}
+.cta-text{color:#8b949e;font-size:13px}
+.cta-btn{background:#238636;color:#fff;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;transition:background .2s}
+.cta-btn:hover{background:#2ea043}
+.issue-list{margin-top:8px;padding-top:6px;border-top:1px solid #21262d}
+.issue-list a{color:#58a6ff;font-size:11px;text-decoration:none;display:inline-block;margin:2px 8px 2px 0}
+.issue-list a:hover{text-decoration:underline}"""
 
 BODY_HTML = """\
 <h1>OctoScout &mdash; ML Compatibility Matrix</h1>
@@ -118,9 +131,8 @@ BODY_HTML = """\
 <a href="https://github.com/tommy-fcy/OctoScout">GitHub</a></p>
 
 <div class="cta">
-  Try OctoScout locally: <code>pip install octoscout</code> &rarr;
-  <code>octoscout diagnose "your traceback"</code>
-  &mdash; <a href="https://github.com/tommy-fcy/OctoScout">Get Started</a>
+  <span class="cta-text">Diagnose ML version errors with one command</span>
+  <a class="cta-btn" href="https://github.com/tommy-fcy/OctoScout">Get OctoScout</a>
 </div>
 
 <div class="stats" id="stats"></div>
@@ -201,12 +213,18 @@ function render(){
 heatmap.addEventListener("mouseover",e=>{const td=e.target.closest("td[data-key]");
   if(!td){tooltip.classList.remove("visible");return}
   const k=td.dataset.key,d=D[k];if(!d)return;
-  let ph="";d.p.forEach(p=>{const url=p.i?"https://github.com/"+p.i.replace("#","/issues/"):"";
+  let ph="";d.p.forEach(p=>{
     ph+='<div class="prob"><span class="sev '+sevCls(p.v)+'">'+p.v.toUpperCase()+"</span> "+p.m+
     (p.f?'<div class="fix">Fix: '+p.f+"</div>":"")+
-    (url?'<div style="font-size:10px;margin-top:2px"><a href="'+url+'" target="_blank" style="color:#58a6ff;text-decoration:none">'+p.i+"</a></div>":"")+
     "</div>"});
-  tooltip.innerHTML="<h3>"+k.replace("+"," + ")+'</h3><div class="score" style="color:'+sc(d.s)+'">'+d.s.toFixed(2)+" ("+d.n+" issues)</div>"+ph;
+  // Show all related GitHub issues as clickable links
+  let issueHtml="";
+  if(d.issues&&d.issues.length>0){
+    issueHtml='<div class="issue-list"><strong style="color:#8b949e;font-size:11px">Related Issues:</strong><br>';
+    d.issues.forEach(ref=>{const url="https://github.com/"+ref.replace("#","/issues/");
+      issueHtml+='<a href="'+url+'" target="_blank">'+ref+"</a>"});
+    issueHtml+="</div>"}
+  tooltip.innerHTML="<h3>"+k.replace("+"," + ")+'</h3><div class="score" style="color:'+sc(d.s)+'">'+d.s.toFixed(2)+" ("+d.n+" issues)</div>"+ph+issueHtml;
   tooltip.classList.add("visible");
   const r=td.getBoundingClientRect();let l=r.right+8,t=r.top;
   tooltip.style.maxHeight="none";tooltip.style.visibility="hidden";tooltip.style.display="block";
