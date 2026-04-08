@@ -43,12 +43,12 @@ def generate_heatmap_html(matrix: CompatibilityMatrix, output_path: Path) -> Pat
             "issue_count": entry.issue_count,
             "problems": [
                 {
-                    "summary": p.summary[:120],
+                    "summary": p.summary[:150],
                     "severity": p.severity,
-                    "solution": p.solution[:120] if p.solution else "",
+                    "solution": p.solution[:150] if p.solution else "",
                     "source": p.source_issues[0] if p.source_issues else "",
                 }
-                for p in entry.known_problems[:5]
+                for p in entry.known_problems  # All problems, no limit
             ],
         }
 
@@ -149,7 +149,7 @@ th.corner {{ position: sticky; left: 0; top: 0; z-index: 3; background: #161b22;
 td {{ width: 36px; height: 36px; text-align: center; font-size: 10px; font-weight: 600; cursor: pointer; border: 1px solid #0d1117; transition: transform 0.1s; }}
 td:hover {{ transform: scale(1.3); z-index: 10; position: relative; }}
 td.no-data {{ background: #161b22; color: #30363d; cursor: default; }}
-.tooltip {{ display: none; position: fixed; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 14px; z-index: 100; max-width: 420px; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-size: 13px; }}
+.tooltip {{ display: none; position: fixed; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 14px; z-index: 100; width: 420px; max-height: 70vh; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); font-size: 13px; }}
 .tooltip.visible {{ display: block; }}
 .tooltip h3 {{ color: #58a6ff; margin-bottom: 8px; font-size: 14px; }}
 .tooltip .score {{ font-size: 20px; font-weight: 700; margin-bottom: 8px; }}
@@ -519,8 +519,11 @@ heatmap.addEventListener('mouseover', e => {{
 }});
 
 heatmap.addEventListener('mouseout', e => {{
+  const related = e.relatedTarget;
+  if (related && (tooltip.contains(related) || related === tooltip)) return;
   if (!e.target.closest('td[data-key]')) tooltip.classList.remove('visible');
 }});
+tooltip.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
 
 rowSel.addEventListener('change', () => {{ updateColSelect(); render(); }});
 colSel.addEventListener('change', render);
