@@ -106,11 +106,13 @@ th.corner{position:sticky;left:0;top:0;z-index:3;background:#161b22}
 td{width:34px;height:34px;text-align:center;font-size:10px;font-weight:600;cursor:pointer;border:1px solid #0d1117;transition:transform .1s}
 td:hover{transform:scale(1.3);z-index:10;position:relative}
 td.nd{background:#161b22;color:#30363d;cursor:default}
-.tooltip{display:none;position:fixed;background:#1c2128;border:1px solid #30363d;border-radius:8px;padding:12px;z-index:100;max-width:400px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.4);font-size:12px}
-.tooltip.visible{display:block}
-.tooltip h3{color:#58a6ff;margin-bottom:6px;font-size:13px}
-.tooltip .score{font-size:18px;font-weight:700;margin-bottom:6px}
-.tooltip .prob{background:#0d1117;border-radius:4px;padding:6px;margin-top:5px}
+.detail-panel{display:none;position:fixed;right:0;top:0;width:420px;height:100vh;background:#161b22;border-left:1px solid #30363d;box-shadow:-4px 0 24px rgba(0,0,0,.5);z-index:200;overflow-y:auto;padding:20px;font-size:12px}
+.detail-panel.visible{display:block}
+.detail-panel h3{color:#58a6ff;margin-bottom:8px;font-size:15px}
+.detail-panel .score{font-size:20px;font-weight:700;margin-bottom:10px}
+.detail-panel .prob{background:#0d1117;border-radius:6px;padding:8px;margin-top:8px}
+.detail-close{position:absolute;top:12px;right:16px;color:#8b949e;cursor:pointer;font-size:20px;background:none;border:none;padding:4px 8px}
+.detail-close:hover{color:#c9d1d9}
 .sev{font-size:10px;font-weight:600;padding:1px 5px;border-radius:3px;margin-right:4px}
 .sh{background:#da3633;color:#fff}.sm{background:#d29922;color:#fff}.sl{background:#238636;color:#fff}
 .fix{color:#58a6ff;font-size:11px;margin-top:3px}
@@ -161,11 +163,11 @@ BODY_HTML = """\
 
 <div class="search-results" id="searchResults"></div>
 <div class="heatmap-container"><table id="heatmap"></table></div>
-<div class="tooltip" id="tooltip"></div>"""
+<div class="detail-panel" id="detailPanel"><button class="detail-close" id="detailClose">&times;</button><div id="detailContent"></div></div>"""
 
 JS = r"""
 const rowSel=document.getElementById("rowPkg"),colSel=document.getElementById("colPkg"),
-  heatmap=document.getElementById("heatmap"),tooltip=document.getElementById("tooltip"),
+  heatmap=document.getElementById("heatmap"),
   topNSel=document.getElementById("topN"),hideEmptyChk=document.getElementById("hideEmpty"),
   searchBox=document.getElementById("searchBox"),searchResults=document.getElementById("searchResults");
 
@@ -210,29 +212,25 @@ function render(){
     h+="</tr>"});
   heatmap.innerHTML=h}
 
-heatmap.addEventListener("mouseover",e=>{const td=e.target.closest("td[data-key]");
-  if(!td){tooltip.classList.remove("visible");return}
+const panel=document.getElementById("detailPanel"),panelContent=document.getElementById("detailContent");
+document.getElementById("detailClose").addEventListener("click",()=>panel.classList.remove("visible"));
+document.addEventListener("keydown",e=>{if(e.key==="Escape")panel.classList.remove("visible")});
+
+heatmap.addEventListener("click",e=>{const td=e.target.closest("td[data-key]");
+  if(!td)return;
   const k=td.dataset.key,d=D[k];if(!d)return;
   let ph="";d.p.forEach(p=>{
     ph+='<div class="prob"><span class="sev '+sevCls(p.v)+'">'+p.v.toUpperCase()+"</span> "+p.m+
     (p.f?'<div class="fix">Fix: '+p.f+"</div>":"")+
     "</div>"});
-  // Show all related GitHub issues as clickable links
   let issueHtml="";
   if(d.issues&&d.issues.length>0){
-    issueHtml='<div class="issue-list"><strong style="color:#8b949e;font-size:11px">Related Issues:</strong><br>';
+    issueHtml='<div class="issue-list"><strong style="color:#8b949e;font-size:12px">Related Issues ('+d.issues.length+'):</strong><br>';
     d.issues.forEach(ref=>{const url="https://github.com/"+ref.replace("#","/issues/");
       issueHtml+='<a href="'+url+'" target="_blank">'+ref+"</a>"});
     issueHtml+="</div>"}
-  tooltip.innerHTML="<h3>"+k.replace("+"," + ")+'</h3><div class="score" style="color:'+sc(d.s)+'">'+d.s.toFixed(2)+" ("+d.n+" issues)</div>"+ph+issueHtml;
-  tooltip.classList.add("visible");
-  const r=td.getBoundingClientRect();let l=r.right+8,t=r.top;
-  tooltip.style.maxHeight="none";tooltip.style.visibility="hidden";tooltip.style.display="block";
-  const tw=tooltip.offsetWidth,th=tooltip.offsetHeight;tooltip.style.display="";tooltip.style.visibility="";
-  if(l+tw>innerWidth-10)l=r.left-tw-8;if(l<10)l=10;
-  t=r.top+r.height/2-th/2;if(t+th>innerHeight-10)t=innerHeight-th-10;if(t<10)t=10;
-  tooltip.style.left=l+"px";tooltip.style.top=t+"px"});
-heatmap.addEventListener("mouseout",e=>{if(!e.target.closest("td[data-key]"))tooltip.classList.remove("visible")});
+  panelContent.innerHTML="<h3>"+k.replace("+"," + ")+'</h3><div class="score" style="color:'+sc(d.s)+'">'+d.s.toFixed(2)+" ("+d.n+" issues)</div>"+ph+issueHtml;
+  panel.classList.add("visible")});
 
 let st;searchBox.addEventListener("input",()=>{clearTimeout(st);st=setTimeout(doSearch,300)});
 function doSearch(){const q=searchBox.value.trim().toLowerCase();
