@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" alt="OctoScout Logo" width="180"/>
+  <img src="assets/logo.png" alt="OctoScout Logo" width="360"/>
 
   # OctoScout
   **LLM-Powered GitHub Issues Agent: Search, Ask, and Give Back**
