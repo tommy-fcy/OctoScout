@@ -156,33 +156,38 @@ python my_script.py 2>&1 | octoscout diagnose -
 octoscout diagnose "..." --verbose
 ```
 
-### Build the compatibility matrix
+### Get the compatibility matrix
 
 ```bash
-# 1. Crawl issues from GitHub
-octoscout matrix crawl --all
+# Download pre-built matrix (35,000+ version pairs, ~4MB) — no API key needed
+octoscout matrix download
 
-# 2. Patch metadata (comment counts)
-octoscout matrix patch-metadata --all
-
-# 3. Enrich with scored comments
-octoscout matrix enrich --all
-
-# 4. Extract structured data via LLM
-octoscout matrix extract --all
-
-# 5. Build the matrix
-octoscout matrix build
-
-# 6. View as interactive heatmap
+# View as interactive heatmap in your browser
 octoscout matrix heatmap
+
+# Check your environment for known issues
+octoscout matrix check --auto-env
+
+# Query specific versions
+octoscout matrix query transformers==4.55.0 torch==2.6.0
 ```
 
-### Check your environment
+<details>
+<summary><b>Build the matrix from scratch (advanced)</b></summary>
+
+If you want to crawl and extract fresh data yourself:
 
 ```bash
-octoscout matrix check --auto-env
+octoscout matrix crawl --all           # 1. Crawl issues from GitHub
+octoscout matrix patch-metadata --all  # 2. Patch metadata (comment counts)
+octoscout matrix enrich --all          # 3. Enrich with scored comments
+octoscout matrix extract --all         # 4. Extract structured data via LLM
+octoscout matrix build                 # 5. Build the matrix
+octoscout matrix heatmap               # 6. View as interactive heatmap
 ```
+
+This requires a GitHub token and an LLM API key, and takes significant time/cost.
+</details>
 
 ## Architecture
 
