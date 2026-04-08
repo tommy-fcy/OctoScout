@@ -84,7 +84,7 @@ def diagnose(
         console.print("[red]Error:[/red] No traceback provided. Pass it as an argument or pipe via stdin.")
         raise typer.Exit(1)
 
-    from octoscout.config import Config
+    from octoscout.config import Config, ConfigError
 
     # Build CLI overrides — only pass values that were explicitly provided
     cli_overrides: dict = {}
@@ -100,6 +100,13 @@ def diagnose(
             cli_overrides["claude_model"] = model
 
     config = Config.load(cli_overrides=cli_overrides or None)
+
+    # Validate LLM credentials early (before starting the pipeline)
+    try:
+        config.get_provider()
+    except ConfigError as e:
+        console.print(f"[red]Configuration error:[/red]\n{e}")
+        raise typer.Exit(1)
 
     console.print(Panel("OctoScout Diagnosis", style="bold cyan"))
 
@@ -225,12 +232,17 @@ def extract(
     verbose: bool = typer.Option(False, "--verbose", help="Show error details for failed extractions."),
 ):
     """Extract structured compatibility info from crawled issues using LLM."""
-    from octoscout.config import Config
+    from octoscout.config import Config, ConfigError
     from octoscout.matrix.extractor import MatrixExtractor
 
     config = Config.load()
     data_dir = Path(config.matrix_data_dir)
-    provider = config.get_extraction_provider()
+
+    try:
+        provider = config.get_extraction_provider()
+    except ConfigError as e:
+        console.print(f"[red]Configuration error:[/red]\n{e}")
+        raise typer.Exit(1)
 
     extractor = MatrixExtractor(
         provider=provider,
@@ -474,6 +486,64 @@ def heatmap(
         webbrowser.open(str(output_path.resolve()))
 
 
+@matrix_app.command()
+def download(
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Overwrite existing matrix.json if present.",
+    ),
+):
+    """Download pre-built compatibility matrix from GitHub Releases."""
+    from octoscout.config import Config
+    from octoscout.matrix.downloader import DownloadError
+
+    config = Config.load()
+    data_dir = Path(config.matrix_data_dir)
+
+    async def _run():
+        from octoscout.matrix.downloader import download_matrix
+        return await download_matrix(
+            data_dir=data_dir,
+            token=config.github_token or None,
+            force=force,
+        )
+
+    try:
+        output = asyncio.run(_run())
+        console.print(f"[bold green]Saved to:[/bold green] {output}")
+    except DownloadError as e:
+        console.print(f"[red]Download failed:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@matrix_app.command(name="update-check")
+def update_check():
+    """Check if a newer pre-built matrix is available."""
+    from octoscout.config import Config
+
+    config = Config.load()
+    data_dir = Path(config.matrix_data_dir)
+
+    async def _run():
+        from octoscout.matrix.downloader import check_update
+        return await check_update(data_dir, token=config.github_token or None)
+
+    result = asyncio.run(_run())
+    if result is None:
+        console.print("[bold green]Matrix is up to date.[/bold green]")
+    else:
+        console.print(
+            f"[bold yellow]Update available![/bold yellow] "
+            f"Release {result['tag']} (published: {result['published_at']})"
+        )
+        local = result.get("local_built_at")
+        if local:
+            console.print(f"  Local matrix built: {local}")
+        else:
+            console.print("  No local matrix found.")
+        console.print("  Run [bold]octoscout matrix download --force[/bold] to update.")
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -503,6 +573,21 @@ async def _run_diagnosis(
 ):
     """Run the full diagnosis pipeline."""
     from octoscout.agent.core import DiagnosisAgent
+
+    # Hint if matrix data is not available
+    matrix_path = Path(config.matrix_data_dir) / "matrix.json"
+    if not matrix_path.exists():
+        console.print(
+            "[dim]Tip: Run [bold]octoscout matrix download[/bold] to get "
+            "pre-built compatibility data (35,000+ version pairs).[/dim]\n"
+        )
+
+    # Hint if GitHub token is not set
+    if not config.github_token:
+        console.print(
+            "[dim]Tip: Set GITHUB_TOKEN for higher API rate limits "
+            "(5,000/hr vs 60/hr).[/dim]\n"
+        )
 
     agent = DiagnosisAgent(config=config, verbose=verbose, direct=direct)
     result = await agent.diagnose(

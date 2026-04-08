@@ -11,6 +11,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+
+class ConfigError(Exception):
+    """Raised when configuration is invalid or incomplete."""
+
+
 # Config file location
 CONFIG_FILE = Path.home() / ".octoscout" / "config.yaml"
 
@@ -143,8 +148,13 @@ class Config:
     # ---------------------------------------------------------------------------
 
     def get_provider(self):
-        """Instantiate the configured LLM provider."""
+        """Instantiate the configured LLM provider.
+
+        Raises:
+            ConfigError: If the required API key is not configured.
+        """
         if self.llm_provider == "claude":
+            self._require_claude_key()
             from octoscout.providers.claude import ClaudeProvider
             return ClaudeProvider(
                 model=self.claude_model,
@@ -153,16 +163,25 @@ class Config:
                 base_url=self.anthropic_base_url or None,
             )
         if self.llm_provider == "openai":
+            self._require_openai_key()
             from octoscout.providers.openai import OpenAIProvider
             return OpenAIProvider(
                 model=self.openai_model,
                 api_key=self.openai_api_key or None,
             )
-        raise ValueError(f"Unknown LLM provider: {self.llm_provider!r}")
+        raise ConfigError(
+            f"Unknown LLM provider: {self.llm_provider!r}. "
+            f"Supported providers: 'claude', 'openai'."
+        )
 
     def get_extraction_provider(self):
-        """Instantiate a cheap LLM provider for bulk matrix extraction."""
+        """Instantiate a cheap LLM provider for bulk matrix extraction.
+
+        Raises:
+            ConfigError: If the required API key is not configured.
+        """
         if self.llm_provider == "claude":
+            self._require_claude_key()
             from octoscout.providers.claude import ClaudeProvider
             return ClaudeProvider(
                 model=self.extraction_model_claude,
@@ -171,9 +190,48 @@ class Config:
                 base_url=self.anthropic_base_url or None,
             )
         if self.llm_provider == "openai":
+            self._require_openai_key()
             from octoscout.providers.openai import OpenAIProvider
             return OpenAIProvider(
                 model=self.extraction_model_openai,
                 api_key=self.openai_api_key or None,
             )
-        raise ValueError(f"Unknown LLM provider: {self.llm_provider!r}")
+        raise ConfigError(
+            f"Unknown LLM provider: {self.llm_provider!r}. "
+            f"Supported providers: 'claude', 'openai'."
+        )
+
+    # ---------------------------------------------------------------------------
+    # Key validation helpers
+    # ---------------------------------------------------------------------------
+
+    def _require_claude_key(self) -> None:
+        """Raise ConfigError if no Anthropic credentials are available."""
+        has_key = (
+            self.anthropic_api_key
+            or self.anthropic_auth_token
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        )
+        if not has_key:
+            raise ConfigError(
+                "Anthropic API key not configured.\n\n"
+                "  Option 1 — environment variable:\n"
+                "    export ANTHROPIC_API_KEY='sk-ant-...'\n\n"
+                "  Option 2 — config file (~/.octoscout/config.yaml):\n"
+                "    anthropic_api_key: sk-ant-...\n\n"
+                "  Get your API key at: https://console.anthropic.com/settings/keys"
+            )
+
+    def _require_openai_key(self) -> None:
+        """Raise ConfigError if no OpenAI credentials are available."""
+        has_key = self.openai_api_key or os.environ.get("OPENAI_API_KEY")
+        if not has_key:
+            raise ConfigError(
+                "OpenAI API key not configured.\n\n"
+                "  Option 1 — environment variable:\n"
+                "    export OPENAI_API_KEY='sk-...'\n\n"
+                "  Option 2 — config file (~/.octoscout/config.yaml):\n"
+                "    openai_api_key: sk-...\n\n"
+                "  Get your API key at: https://platform.openai.com/api-keys"
+            )

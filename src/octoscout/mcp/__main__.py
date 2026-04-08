@@ -1,5 +1,5 @@
 """Allow running MCP server via `python -m octoscout.mcp`."""
 
-from octoscout.mcp.server import run
+from octoscout.mcp.server import mcp
 
-run()
+mcp.run(transport="stdio")

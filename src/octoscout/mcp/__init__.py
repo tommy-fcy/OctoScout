@@ -1,1 +1,5 @@
-"""MCP Server implementation (Phase 3)."""
+"""MCP Server for OctoScout — built on the official mcp SDK."""
+
+from octoscout.mcp.server import mcp
+
+__all__ = ["mcp"]

@@ -6,12 +6,72 @@
 
   ![Python](https://img.shields.io/badge/python-3.10+-blue)
   ![License](https://img.shields.io/badge/license-MIT-blue)
-  ![Tests](https://img.shields.io/badge/tests-75%20passed-green)
+  ![Tests](https://img.shields.io/badge/tests-123%20passed-green)
 </div>
 
 Ever spent hours digging through thousands of GitHub Issues to debug a version incompatibility? OctoScout does that for you.
 
 OctoScout is an LLM-powered agent that diagnoses Python/ML framework errors by analyzing tracebacks, detecting version incompatibilities, searching GitHub Issues, and building a compatibility matrix across the ML ecosystem.
+
+## Real-world Example
+
+**The problem:** You're using Qwen2.5-VL-7B for image understanding, but the model keeps outputting gibberish like `"addCriterion"` mixed with your results. No error, no traceback -- just broken output. You'd spend hours debugging until you stumble upon [QwenLM/Qwen3-VL#759](https://github.com/QwenLM/Qwen3-VL/issues/759) (50+ comments, months of confusion).
+
+**With OctoScout:** One command finds the root cause in seconds.
+
+```bash
+$ octoscout diagnose "Qwen2.5-VL-7B-Instruct outputs unexpected 'addCriterion' text"
+
+## Diagnosis
+
+Problem: Qwen2.5-VL-7B-Instruct produces garbage output (e.g., "addCriterion"
+text) due to corrupted position embeddings introduced in transformers>=4.54.0.
+
+Root Cause: Two merged PRs in transformers introduced regressions that broke
+Qwen2.5-VL generation:
+ 1. PR #37363 caused subtle accuracy degradation.
+ 2. PR #39447 introduced a critical bug in text_position_ids handling,
+    causing the decoder to receive wrong position IDs, leading to
+    nonsensical token predictions like "addCriterion".
+
+Affected Versions: transformers 4.54.0 through at least 4.56.2.
+
+Recommended Fix:
+
+  Option A — Downgrade (immediate, safest):
+    pip install transformers==4.53.3
+
+  Option B — Workaround if you must stay on 4.55:
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        "Qwen/Qwen2.5-VL-7B-Instruct",
+        attn_implementation="sdpa",   # avoid Flash Attention 2 bug
+    )
+    processor = AutoProcessor.from_pretrained(..., padding_side="left")
+
+Related Issues:
+ • huggingface/transformers#40154 — "Qwen2.5VL is broken!"
+ • huggingface/transformers#40136 — Accuracy regression (86% → 73%) on MMMU
+ • huggingface/transformers#43972 — Comprehensive fix for 3D position IDs
+```
+
+> OctoScout searched GitHub issues, identified the exact PRs that introduced the regression, and suggested both a downgrade fix and a workaround -- all in one command.
+
+**Or check your environment before you even hit the bug:**
+
+```bash
+$ octoscout matrix query qwen-vl-utils==0.0.9 transformers==4.55.0 torch==2.6.0
+
+                       Compatibility Query Results
+┌──────────────────────┬──────────────────────┬───────┬────────┬────────┐
+│ Package A            │ Package B            │ Score │ Issues │ Status │
+├──────────────────────┼──────────────────────┼───────┼────────┼────────┤
+│ qwen-vl-utils==0.0.9 │ transformers==4.55.0 │  0.85 │      1 │ OK     │
+│ qwen-vl-utils==0.0.9 │ torch==2.6.0         │  0.75 │      2 │ OK     │
+│ transformers==4.55.0 │ torch==2.6.0         │  0.30 │      5 │ RISK   │
+└──────────────────────┴──────────────────────┴───────┴────────┴────────┘
+```
+
+OctoScout flags `transformers==4.55 + torch==2.6` as **RISK** (score 0.30, 5 known issues) -- before you even run your code.
 
 ## Features
 
