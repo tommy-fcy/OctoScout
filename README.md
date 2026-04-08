@@ -7,6 +7,8 @@
   ![Python](https://img.shields.io/badge/python-3.10+-blue)
   ![License](https://img.shields.io/badge/license-MIT-blue)
   ![Tests](https://img.shields.io/badge/tests-123%20passed-green)
+
+  **[Live Demo: Explore the Compatibility Matrix](https://tommy-fcy.github.io/OctoScout/)**
 </div>
 
 Ever spent hours digging through thousands of GitHub Issues to debug a version incompatibility? OctoScout does that for you.
