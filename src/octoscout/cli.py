@@ -230,6 +230,7 @@ def extract(
     all_repos: bool = typer.Option(False, "--all", help="Extract all crawled repos."),
     concurrency: int = typer.Option(None, "--concurrency", "-c", help="Max concurrent LLM calls."),
     verbose: bool = typer.Option(False, "--verbose", help="Show error details for failed extractions."),
+    output_dir: str = typer.Option("extracted_v2", "--output-dir", "-o", help="Output subdirectory name (e.g. extracted_v1, extracted_v2)."),
 ):
     """Extract structured compatibility info from crawled issues using LLM."""
     from octoscout.config import Config, ConfigError
@@ -247,7 +248,7 @@ def extract(
     extractor = MatrixExtractor(
         provider=provider,
         input_dir=data_dir,
-        output_dir=data_dir / "extracted",
+        output_dir=data_dir / output_dir,
         concurrency=concurrency or config.extract_concurrency,
         log_errors=verbose,
     )
@@ -266,21 +267,33 @@ def extract(
 
 
 @matrix_app.command()
-def build():
+def build(
+    extracted_dirs: list[str] = typer.Option(
+        None, "--extracted-dir", "-e",
+        help="Extracted data directories to merge (e.g. extracted_v1 extracted_v2). Repeatable. Defaults to all extracted_* dirs.",
+    ),
+):
     """Build the compatibility matrix from extracted data."""
     from octoscout.config import Config
     from octoscout.matrix.aggregator import CompatibilityMatrix
 
     config = Config.load()
     data_dir = Path(config.matrix_data_dir)
-    extracted_dir = data_dir / "extracted"
     output_path = data_dir / "matrix.json"
 
-    if not extracted_dir.exists() or not list(extracted_dir.glob("*.jsonl")):
+    if extracted_dirs:
+        dirs = [data_dir / d for d in extracted_dirs]
+    else:
+        # Auto-discover: all extracted* directories
+        dirs = sorted(data_dir.glob("extracted*"))
+        dirs = [d for d in dirs if d.is_dir() and list(d.glob("*.jsonl"))]
+
+    if not dirs:
         console.print("[red]No extracted data found. Run 'octoscout matrix extract' first.[/red]")
         raise typer.Exit(1)
 
-    matrix = CompatibilityMatrix.build_from_extracted(extracted_dir, output_path)
+    console.print(f"[dim]Building from: {', '.join(d.name for d in dirs)}[/dim]")
+    matrix = CompatibilityMatrix.build_from_extracted(dirs, output_path)
     console.print(f"[bold green]Matrix built.[/bold green] {matrix.entry_count} version-pair entries saved to {output_path}")
 
 
@@ -313,9 +326,34 @@ def query(
 
     matrix = CompatibilityMatrix.load(matrix_path)
 
-    from itertools import combinations
-
     from rich.table import Table
+
+    # Single-package query
+    if len(parsed) == 1:
+        pkg, ver = parsed[0]
+        issues = matrix.query_package(pkg, ver)
+        if not issues:
+            console.print(f"[dim]No known issues for {pkg}=={ver}.[/dim]")
+            return
+
+        console.print(f"[bold]Known issues for {pkg}=={ver}[/bold] ({len(issues)} found):\n")
+        for i in issues:
+            sev = i.get("severity", "low")
+            color = "red" if sev == "high" else "yellow" if sev == "medium" else "green"
+            summary = i.get("summary", "")
+            solution = i.get("solution", "")
+            issue_id = i.get("issue_id", "")
+            parts = [f"[{color}][{sev.upper()}][/{color}] {summary}"]
+            if solution:
+                parts.append(f"  [cyan]Fix: {solution}[/cyan]")
+            if issue_id:
+                parts.append(f"  [dim]{issue_id}[/dim]")
+            console.print("\n".join(parts))
+            console.print()
+        return
+
+    # Multi-package pair query
+    from itertools import combinations
 
     table = Table(title="Compatibility Query Results")
     table.add_column("Package A")

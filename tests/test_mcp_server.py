@@ -202,13 +202,15 @@ class TestOctoscoutCheckCompatibility:
 
         assert "not available" in _tool_text(result)
 
-    async def test_too_few_packages(self, tmp_path):
+    async def test_single_package_query(self, tmp_path):
         matrix_data = {
             "version": "1.1",
             "built_at": "2026-01-01T00:00:00+00:00",
             "entry_count": 0,
             "entries": {},
-            "single_pkg_issues": [],
+            "single_pkg_issues": [
+                {"package": "torch", "version": "2.3", "summary": "CUDA crash", "issue_id": "r#1", "severity": "high"},
+            ],
         }
         (tmp_path / "matrix.json").write_text(json.dumps(matrix_data))
 
@@ -222,7 +224,7 @@ class TestOctoscoutCheckCompatibility:
                 {"packages": "torch==2.3.0"},
             )
 
-        assert "at least 2" in _tool_text(result)
+        assert "CUDA crash" in _tool_text(result)
 
 
 class TestOctoscoutDiagnose:

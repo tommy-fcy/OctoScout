@@ -228,8 +228,24 @@ async def octoscout_check_compatibility(packages: str) -> str:
             name, version = part.split("==", 1)
             pairs.append((name.strip(), version.strip()))
 
-    if len(pairs) < 2:
-        return "Need at least 2 package==version pairs, or use 'auto'."
+    if len(pairs) == 1:
+        # Single-package query
+        pkg, ver = pairs[0]
+        results = matrix.query_package(pkg, ver)
+        if not results:
+            return f"No known issues for {pkg}=={ver} in the matrix."
+        lines = [f"Known issues for **{pkg}=={ver}** ({len(results)} found):\n"]
+        for r in results:
+            sev = r.get("severity", "low")
+            lines.append(f"- [{sev}] {r.get('summary', '')}")
+            if r.get("solution"):
+                lines.append(f"  Fix: {r['solution']}")
+            if r.get("issue_id"):
+                lines.append(f"  Source: {r['issue_id']}")
+        return "\n".join(lines)
+
+    if len(pairs) < 1:
+        return "Provide at least 1 package==version pair, or use 'auto'."
 
     lines = []
     for (pkg_a, ver_a), (pkg_b, ver_b) in combinations(pairs, 2):

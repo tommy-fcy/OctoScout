@@ -265,3 +265,130 @@ def test_entry_count():
         "c==1+d==2": CompatibilityEntry(score=0.8, issue_count=1),
     })
     assert matrix.entry_count == 2
+
+
+# ---------------------------------------------------------------------------
+# query_package / search_issues tests
+# ---------------------------------------------------------------------------
+
+
+def test_query_package():
+    """query_package returns single-package issues filtered by name."""
+    matrix = CompatibilityMatrix(
+        single_pkg_issues=[
+            {"package": "transformers", "version": "4.55", "summary": "crash A", "issue_id": "r#1"},
+            {"package": "transformers", "version": "4.52", "summary": "crash B", "issue_id": "r#2"},
+            {"package": "torch", "version": "2.3", "summary": "cuda error", "issue_id": "r#3"},
+        ],
+    )
+    results = matrix.query_package("transformers")
+    assert len(results) == 2
+
+    results_ver = matrix.query_package("transformers", "4.55.0")
+    assert len(results_ver) == 1
+    assert results_ver[0]["summary"] == "crash A"
+
+
+def test_query_package_empty():
+    """query_package returns empty list for unknown package."""
+    matrix = CompatibilityMatrix()
+    assert matrix.query_package("unknown") == []
+
+
+def test_search_issues():
+    """search_issues finds issues by keyword in summary/solution."""
+    matrix = CompatibilityMatrix(
+        single_pkg_issues=[
+            {"package": "transformers", "summary": "addCriterion garbage output", "solution": "downgrade", "title": "bug"},
+            {"package": "torch", "summary": "CUDA OOM", "solution": "", "title": "oom"},
+        ],
+    )
+    results = matrix.search_issues("addCriterion")
+    assert len(results) == 1
+    assert results[0]["package"] == "transformers"
+
+    results2 = matrix.search_issues("CUDA")
+    assert len(results2) == 1
+
+
+# ---------------------------------------------------------------------------
+# Multi-dir build tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_from_multiple_dirs():
+    """build_from_extracted merges data from multiple directories."""
+    issues_v1 = [
+        ExtractedIssueInfo(
+            issue_id="repo#1", title="Old crash",
+            reported_versions={"transformers": "4.55.0", "torch": "2.3.0"},
+            problem_type="crash",
+        ),
+    ]
+    issues_v2 = [
+        ExtractedIssueInfo(
+            issue_id="repo#2", title="New crash",
+            reported_versions={"transformers": "4.55.0", "peft": "0.13.0"},
+            problem_type="crash",
+        ),
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        dir_v1 = _write_extracted(tmpdir / "v1_parent", issues_v1)
+        dir_v2 = _write_extracted(tmpdir / "v2_parent", issues_v2)
+        output = tmpdir / "matrix.json"
+
+        matrix = CompatibilityMatrix.build_from_extracted([dir_v1, dir_v2], output)
+        # Should have entries from both dirs
+        assert matrix.query_pair("transformers", "4.55", "torch", "2.3") is not None
+        assert matrix.query_pair("transformers", "4.55", "peft", "0.13") is not None
+
+
+def test_build_deduplicates_by_issue_id():
+    """Same issue_id in multiple dirs should not be counted twice."""
+    issue = ExtractedIssueInfo(
+        issue_id="repo#1", title="Crash",
+        reported_versions={"transformers": "4.55.0", "torch": "2.3.0"},
+        problem_type="crash",
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        dir1 = _write_extracted(tmpdir / "d1", [issue])
+        dir2 = _write_extracted(tmpdir / "d2", [issue])
+        output = tmpdir / "matrix.json"
+
+        matrix = CompatibilityMatrix.build_from_extracted([dir1, dir2], output)
+        result = matrix.query_pair("transformers", "4.55", "torch", "2.3")
+        assert result is not None
+        assert result.issue_count == 1  # Not 2
+
+
+# ---------------------------------------------------------------------------
+# Zero-version issue retention
+# ---------------------------------------------------------------------------
+
+
+def test_zero_version_issue_retained():
+    """Issues with no version should be retained with package inferred from repo."""
+    issues = [
+        ExtractedIssueInfo(
+            issue_id="huggingface/transformers#999",
+            title="Mysterious crash",
+            reported_versions={},
+            problem_type="crash",
+            error_message_summary="segfault in model.forward()",
+        ),
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        extracted_dir = _write_extracted(tmpdir, issues)
+        output = tmpdir / "matrix.json"
+
+        matrix = CompatibilityMatrix.build_from_extracted(extracted_dir, output)
+        # Should be in single_pkg_issues with inferred package
+        results = matrix.query_package("transformers")
+        assert len(results) == 1
+        assert results[0]["summary"] == "segfault in model.forward()"

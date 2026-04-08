@@ -162,8 +162,24 @@ class ToolExecutor:
                 name, version = part.split("==", 1)
                 pairs.append((name.strip(), version.strip()))
 
+        if len(pairs) == 1:
+            # Single-package query: return known issues for this package
+            pkg, ver = pairs[0]
+            results = self._matrix.query_package(pkg, ver)
+            if not results:
+                return f"No known issues for {pkg}=={ver} in the matrix."
+            lines = [f"Known issues for {pkg}=={ver} ({len(results)} found):\n"]
+            for r in results:
+                sev = r.get("severity", "low")
+                lines.append(f"  [{sev}] {r.get('summary', '')}")
+                if r.get("solution"):
+                    lines.append(f"    Fix: {r['solution']}")
+                if r.get("issue_id"):
+                    lines.append(f"    Source: {r['issue_id']}")
+            return "\n".join(lines)
+
         if len(pairs) < 2:
-            return "Need at least 2 package==version pairs to check compatibility."
+            return "Provide at least 1 package==version pair to query."
 
         from itertools import combinations
 

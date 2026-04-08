@@ -27,7 +27,7 @@ Extract structured compatibility information from this GitHub issue.
     "related_issues": ["owner/repo#123"]
 }}
 
-Example 1 — Multi-package crash with fix:
+Example for a real issue:
 {{
     "reported_versions": {{"transformers": "4.55.0", "torch": "2.3.0", "peft": "0.13.1"}},
     "python_version": "3.11.5",
@@ -41,38 +41,6 @@ Example 1 — Multi-package crash with fix:
     "fix_version": null,
     "affected_version_range": ">=5.0.0",
     "related_issues": ["huggingface/transformers#43733"]
-}}
-
-Example 2 — Single package, solution found in comments:
-{{
-    "reported_versions": {{"transformers": "4.55.0"}},
-    "python_version": null,
-    "cuda_version": null,
-    "problem_type": "wrong_output",
-    "error_type": null,
-    "error_message_summary": "Qwen2.5-VL outputs garbage text 'addCriterion' mixed with responses",
-    "has_solution": true,
-    "solution_type": "version_change",
-    "solution_detail": "Downgrade transformers to 4.52.3, or set padding_side='left' in processor",
-    "fix_version": "4.52.3",
-    "affected_version_range": ">=4.53",
-    "related_issues": []
-}}
-
-Example 3 — No version mentioned, but repo is the package:
-{{
-    "reported_versions": {{"vllm": null}},
-    "python_version": null,
-    "cuda_version": null,
-    "problem_type": "crash",
-    "error_type": "RuntimeError",
-    "error_message_summary": "CUDA out of memory when loading 70B model with tensor parallelism",
-    "has_solution": false,
-    "solution_type": "none",
-    "solution_detail": null,
-    "fix_version": null,
-    "affected_version_range": null,
-    "related_issues": []
 }}
 
 Now extract from the issue above. Respond with ONLY the JSON object.

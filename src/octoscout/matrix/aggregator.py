@@ -87,6 +87,24 @@ def _make_pair_key(pkg_a: str, ver_a: str, pkg_b: str, ver_b: str) -> str:
     return f"{a}+{b}"
 
 
+# Build _REPO_TO_PACKAGE by inverting PACKAGE_REPO_MAP (first package wins per repo)
+_REPO_TO_PACKAGE: dict[str, str] = {}
+for _pkg, _repo in PACKAGE_REPO_MAP.items():
+    if _repo not in _REPO_TO_PACKAGE:
+        _REPO_TO_PACKAGE[_repo] = _pkg
+# Add extra repos not in PACKAGE_REPO_MAP
+_REPO_TO_PACKAGE.setdefault("QwenLM/Qwen2.5", "qwen")
+_REPO_TO_PACKAGE.setdefault("QwenLM/Qwen3-VL", "qwen-vl-utils")
+
+
+def _infer_package_from_issue_id(issue_id: str) -> str | None:
+    """Infer the primary package name from an issue ID like 'owner/repo#123'."""
+    if "#" not in issue_id:
+        return None
+    repo = issue_id.split("#")[0]
+    return _REPO_TO_PACKAGE.get(repo)
+
+
 def _problem_severity(problem_type: str) -> str:
     """Map problem_type to severity level."""
     if problem_type in ("crash", "install"):
@@ -107,23 +125,50 @@ class CompatibilityMatrix:
         self._entries: dict[str, CompatibilityEntry] = entries or {}
         # Issues with 0 or 1 reported version — can't form pairs but still searchable
         self._single_pkg_issues: list[dict] = single_pkg_issues or []
+        # Build package index for fast single-package lookups
+        self._pkg_index: dict[str, list[dict]] = defaultdict(list)
+        for si in self._single_pkg_issues:
+            pkg = si.get("package")
+            if pkg:
+                self._pkg_index[_normalize_package_name(pkg)].append(si)
 
     @classmethod
     def build_from_extracted(
-        cls, extracted_dir: Path, output_path: Path
+        cls,
+        extracted_dir: Path | list[Path],
+        output_path: Path,
     ) -> CompatibilityMatrix:
-        """Build the matrix from all extracted JSONL files."""
-        # Read all extracted issues
+        """Build the matrix from all extracted JSONL files.
+
+        Args:
+            extracted_dir: A single directory or a list of directories to read
+                extracted JSONL files from. When multiple directories are given,
+                their data is merged (later dirs can supplement earlier ones).
+            output_path: Where to save the built matrix.json.
+        """
+        # Normalize to list
+        dirs = [extracted_dir] if isinstance(extracted_dir, Path) else extracted_dir
+
+        # Read all extracted issues from all directories
         all_issues: list[ExtractedIssueInfo] = []
-        for jsonl_file in extracted_dir.glob("*.jsonl"):
-            with open(jsonl_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            all_issues.append(ExtractedIssueInfo.from_dict(json.loads(line)))
-                        except (json.JSONDecodeError, KeyError):
-                            pass
+        seen_ids: set[str] = set()
+        for d in dirs:
+            if not d.exists():
+                continue
+            for jsonl_file in d.glob("*.jsonl"):
+                with open(jsonl_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                issue = ExtractedIssueInfo.from_dict(json.loads(line))
+                                # Deduplicate by issue_id (later dirs override earlier)
+                                if issue.issue_id in seen_ids:
+                                    continue
+                                seen_ids.add(issue.issue_id)
+                                all_issues.append(issue)
+                            except (json.JSONDecodeError, KeyError):
+                                pass
 
         # Group issues by version pair (only valid versions)
         pair_issues: dict[str, list[ExtractedIssueInfo]] = defaultdict(list)
@@ -134,7 +179,7 @@ class CompatibilityMatrix:
             valid_versions = {
                 _normalize_package_name(pkg): _clean_version(ver)
                 for pkg, ver in issue.reported_versions.items()
-                if _is_valid_version(ver)
+                if ver and _is_valid_version(ver)
             }
 
             # Collect issues with 0-1 versions into the single-package index
@@ -142,6 +187,11 @@ class CompatibilityMatrix:
                 if issue.error_message_summary or issue.title:
                     pkg_name = list(valid_versions.keys())[0] if valid_versions else None
                     pkg_ver = list(valid_versions.values())[0] if valid_versions else None
+
+                    # For 0-version issues, infer package from issue_id repo name
+                    if pkg_name is None and issue.issue_id:
+                        pkg_name = _infer_package_from_issue_id(issue.issue_id)
+
                     single_pkg_issues.append({
                         "issue_id": issue.issue_id,
                         "title": issue.title,
@@ -295,6 +345,31 @@ class CompatibilityMatrix:
                         )
                     )
 
+        # Check single-package issues for installed packages
+        for pkg, ver in tracked.items():
+            issues = self.query_package(pkg, ver)
+            high_sev = [i for i in issues if i.get("severity") == "high"]
+            if high_sev:
+                # Convert single-pkg issues into a warning
+                problems = [
+                    KnownProblem(
+                        summary=i.get("summary", ""),
+                        severity=i.get("severity", "low"),
+                        solution=i.get("solution", ""),
+                        source_issues=[i["issue_id"]] if i.get("issue_id") else [],
+                    )
+                    for i in high_sev[:5]
+                ]
+                warnings.append(
+                    CompatibilityWarning(
+                        packages={pkg: ver},
+                        score=max(0.0, 1.0 - 0.15 * len(high_sev)),
+                        problems=problems,
+                        recommendation=problems[0].solution if problems[0].solution else
+                            f"{len(high_sev)} known high-severity issue(s) for {pkg}=={ver}.",
+                    )
+                )
+
         # Sort by score ascending (most risky first)
         warnings.sort(key=lambda w: w.score)
         return warnings
@@ -346,6 +421,29 @@ class CompatibilityMatrix:
 
         candidates.sort(key=lambda x: x[1].score)
         return candidates[:n]
+
+    def query_package(
+        self, pkg: str, ver: str | None = None, limit: int = 20,
+    ) -> list[dict]:
+        """Query single-package issues by package name, optionally filtered by version."""
+        pkg_norm = _normalize_package_name(pkg)
+        results = self._pkg_index.get(pkg_norm, [])
+        if ver:
+            minor = _to_minor(_clean_version(ver))
+            results = [r for r in results if r.get("version") == minor]
+        return results[:limit]
+
+    def search_issues(self, keyword: str, limit: int = 20) -> list[dict]:
+        """Search single-package issues by keyword in summary and solution."""
+        kw = keyword.lower()
+        results = []
+        for si in self._single_pkg_issues:
+            text = f"{si.get('summary', '')} {si.get('solution', '')} {si.get('title', '')}".lower()
+            if kw in text:
+                results.append(si)
+                if len(results) >= limit:
+                    break
+        return results
 
     @staticmethod
     def _make_recommendation(entry: CompatibilityEntry) -> str:
