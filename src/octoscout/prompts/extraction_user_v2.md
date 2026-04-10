@@ -43,7 +43,7 @@ Example 1 — Multi-package crash with fix:
     "related_issues": ["huggingface/transformers#43733"]
 }}
 
-Example 2 — Single package, solution found in comments:
+Example 2 — Single package, workaround found in comments (fix_version is null because downgrade is not a fix):
 {{
     "reported_versions": {{"transformers": "4.55.0"}},
     "python_version": null,
@@ -52,9 +52,9 @@ Example 2 — Single package, solution found in comments:
     "error_type": null,
     "error_message_summary": "Qwen2.5-VL outputs garbage text 'addCriterion' mixed with responses",
     "has_solution": true,
-    "solution_type": "version_change",
+    "solution_type": "workaround",
     "solution_detail": "Downgrade transformers to 4.52.3, or set padding_side='left' in processor",
-    "fix_version": "4.52.3",
+    "fix_version": null,
     "affected_version_range": ">=4.53",
     "related_issues": []
 }}

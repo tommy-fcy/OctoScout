@@ -30,7 +30,7 @@ Your task: given a GitHub issue (title, body, and optionally comments), extract 
   - Merged PRs referenced: "fixed in PR #1234", "this was merged"
   - Maintainer closures: "closing as resolved", "fixed in vX.Y.Z"
   - Code snippets provided as workarounds
-- **fix_version** is critical — extract the specific version that fixes the issue whenever mentioned. Patterns: "fixed in 4.56", "works with >=4.52.3", "merged in v2.4.0".
+- **fix_version** is the version where the bug was **fixed** (usually a newer release). Patterns: "fixed in 4.56", "merged in v2.4.0", "resolved in next release". Do NOT put downgrade target versions here — if the fix is "downgrade to 4.52.3", that's a workaround, not a fix_version. fix_version should be null in that case.
 - **solution_detail** should be concrete and actionable. Write "upgrade transformers to 4.56.0" or "add padding_side='left' to AutoProcessor.from_pretrained()", not just "upgrade the package".
 - Solution types:
   - "version_change": Fix by upgrading or downgrading a package

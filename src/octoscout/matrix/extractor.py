@@ -202,7 +202,7 @@ class MatrixExtractor:
         """Extract structured info from a single raw issue via LLM."""
         # Truncate body and comments to keep prompt reasonable
         body = (raw.body or "")[:3000]
-        comments = (raw.comments_text or "")[:2000]
+        comments = (raw.comments_text or "")[:4000]
 
         prompt = EXTRACTION_USER_TEMPLATE.format(
             repo=raw.repo,
