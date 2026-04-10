@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from octoscout.models import ToolDefinition, ToolParameter
+from octoscout.models import GitHubIssueRef, ToolDefinition, ToolParameter
 
 # ---------------------------------------------------------------------------
 # Tool Definitions (sent to the LLM)
@@ -184,9 +184,11 @@ class ToolExecutor:
         from itertools import combinations
 
         lines: list[str] = []
+        has_results = False
         for (pkg_a, ver_a), (pkg_b, ver_b) in combinations(pairs, 2):
             result = self._matrix.query_pair(pkg_a, ver_a, pkg_b, ver_b)
             if result:
+                has_results = True
                 status = "OK" if result.score >= 0.7 else "RISK"
                 lines.append(
                     f"{pkg_a}=={ver_a} + {pkg_b}=={ver_b}: "
@@ -198,12 +200,42 @@ class ToolExecutor:
                         lines.append(f"    Fix: {p.solution}")
                     if p.source_issues:
                         lines.append(f"    Source: {', '.join(p.source_issues)}")
+                    # Record source issues so search_github_issues can deduplicate
+                    for ref in p.source_issues:
+                        self._record_source_issue(ref)
             else:
                 lines.append(
                     f"{pkg_a}=={ver_a} + {pkg_b}=={ver_b}: No data in matrix"
                 )
 
+        if has_results:
+            lines.append(
+                "\nTip: Use get_issue_detail to read any of the source issues "
+                "above for the full solution context. These issues are already "
+                "in the pre-built matrix — no need to search for them again."
+            )
+
         return "\n".join(lines) if lines else "No compatibility data found."
+
+    def _record_source_issue(self, ref: str) -> None:
+        """Parse an issue ref like 'owner/repo#123' and add to found_issues."""
+        if "#" not in ref:
+            return
+        repo, num_str = ref.rsplit("#", 1)
+        try:
+            number = int(num_str)
+        except ValueError:
+            return
+        # Skip if already tracked
+        if any(i.repo == repo and i.number == number for i in self.found_issues):
+            return
+        self.found_issues.append(GitHubIssueRef(
+            repo=repo,
+            number=number,
+            title="(from matrix)",
+            url=f"https://github.com/{repo}/issues/{number}",
+            state="closed",
+        ))
 
 
 def _truncate(text: str, max_len: int) -> str:
