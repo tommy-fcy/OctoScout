@@ -78,6 +78,52 @@ def parse_llm_json(text: str) -> dict | None:
         except json.JSONDecodeError:
             pass
 
+    # Strategy 4: Repair truncated JSON — try closing open braces/brackets
+    if start != -1:
+        fragment = text[start:]
+        repaired = _repair_truncated_json(fragment)
+        if repaired:
+            return repaired
+
+    return None
+
+
+def _repair_truncated_json(fragment: str) -> dict | None:
+    """Attempt to repair a truncated JSON object by closing open structures."""
+    # Strip trailing comma and whitespace
+    s = fragment.rstrip()
+    if s.endswith(","):
+        s = s[:-1]
+
+    # Count open braces/brackets
+    open_braces = s.count("{") - s.count("}")
+    open_brackets = s.count("[") - s.count("]")
+
+    # Close them
+    s += "]" * max(open_brackets, 0)
+    s += "}" * max(open_braces, 0)
+
+    try:
+        result = json.loads(s)
+        if isinstance(result, dict):
+            return result
+    except json.JSONDecodeError:
+        pass
+
+    # Try stripping the last incomplete key-value pair
+    # e.g. `..."foo": "bar`, `..."count": 12` (missing closing quote or comma)
+    last_comma = s.rfind(",")
+    if last_comma > 0:
+        trimmed = s[:last_comma]
+        trimmed += "]" * max(trimmed.count("[") - trimmed.count("]"), 0)
+        trimmed += "}" * max(trimmed.count("{") - trimmed.count("}"), 0)
+        try:
+            result = json.loads(trimmed)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            pass
+
     return None
 
 
@@ -244,6 +290,9 @@ class MatrixExtractor:
                 )
             return None
 
+        # Normalize common LLM mistakes
+        parsed = _normalize_parsed(parsed)
+
         issue_id = f"{raw.repo}#{raw.number}"
 
         return ExtractedIssueInfo(
@@ -262,6 +311,53 @@ class MatrixExtractor:
             affected_version_range=parsed.get("affected_version_range"),
             related_issues=parsed.get("related_issues", []),
         )
+
+
+_VALID_PROBLEM_TYPES = {"crash", "wrong_output", "performance", "install", "other"}
+_VALID_SOLUTION_TYPES = {"version_change", "code_fix", "config_change", "workaround", "none"}
+
+
+def _normalize_parsed(parsed: dict) -> dict:
+    """Fix common LLM output mistakes: wrong key names, invalid enum values."""
+    # Fix wrong key names (e.g. "released_versions" → "reported_versions")
+    if "reported_versions" not in parsed:
+        for wrong_key in ("released_versions", "versions", "package_versions"):
+            if wrong_key in parsed and isinstance(parsed[wrong_key], dict):
+                parsed["reported_versions"] = parsed.pop(wrong_key)
+                break
+
+    # Fix invalid problem_type values
+    pt = parsed.get("problem_type", "other")
+    if pt not in _VALID_PROBLEM_TYPES:
+        # Try to map common mistakes
+        pt_lower = pt.lower()
+        if "wrong" in pt_lower or "output" in pt_lower or "unexpected" in pt_lower:
+            parsed["problem_type"] = "wrong_output"
+        elif "crash" in pt_lower or "error" in pt_lower or "exception" in pt_lower:
+            parsed["problem_type"] = "crash"
+        elif "install" in pt_lower or "build" in pt_lower:
+            parsed["problem_type"] = "install"
+        elif "perf" in pt_lower or "slow" in pt_lower or "memory" in pt_lower:
+            parsed["problem_type"] = "performance"
+        else:
+            parsed["problem_type"] = "other"
+
+    # Fix invalid solution_type values
+    st = parsed.get("solution_type", "none")
+    if st not in _VALID_SOLUTION_TYPES:
+        st_lower = st.lower()
+        if "version" in st_lower or "upgrade" in st_lower or "downgrade" in st_lower:
+            parsed["solution_type"] = "version_change"
+        elif "code" in st_lower or "api" in st_lower:
+            parsed["solution_type"] = "code_fix"
+        elif "config" in st_lower or "env" in st_lower:
+            parsed["solution_type"] = "config_change"
+        elif "workaround" in st_lower or "hack" in st_lower:
+            parsed["solution_type"] = "workaround"
+        else:
+            parsed["solution_type"] = "none"
+
+    return parsed
 
     async def extract_all(self, repo_slugs: list[str] | None = None) -> dict[str, ExtractStats]:
         """Extract all repos. If repo_slugs is None, discover from raw/ dir."""

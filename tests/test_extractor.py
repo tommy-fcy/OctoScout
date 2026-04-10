@@ -11,6 +11,8 @@ import pytest
 
 from octoscout.matrix.extractor import (
     MatrixExtractor,
+    _normalize_parsed,
+    _repair_truncated_json,
     parse_llm_json,
 )
 from octoscout.matrix.models import ExtractedIssueInfo, RawIssue
@@ -47,6 +49,54 @@ def test_parse_malformed_returns_none():
     assert parse_llm_json("This is not JSON at all") is None
     assert parse_llm_json("") is None
     assert parse_llm_json("{{broken}") is None
+
+
+def test_parse_truncated_json():
+    """Truncated JSON should be repaired by closing open braces."""
+    text = '{"reported_versions": {"torch": "2.3.0"}, "problem_type": "crash",'
+    result = parse_llm_json(text)
+    assert result is not None
+    assert result["problem_type"] == "crash"
+
+
+def test_parse_truncated_json_mid_value():
+    """JSON truncated in the middle of a value — drops incomplete field."""
+    text = '{"reported_versions": {"transformers": "4.55"}, "problem_type": "install", "solution_detail": "upgrade to'
+    result = parse_llm_json(text)
+    assert result is not None
+    assert result["reported_versions"]["transformers"] == "4.55"
+
+
+def test_repair_truncated_json_nested():
+    """Nested truncated JSON with arrays."""
+    text = '{"reported_versions": {"torch": "2.3"}, "related_issues": ["repo#1"'
+    result = _repair_truncated_json(text)
+    assert result is not None
+    assert result["related_issues"] == ["repo#1"]
+
+
+def test_normalize_wrong_key_name():
+    """released_versions should be renamed to reported_versions."""
+    parsed = {"released_versions": {"torch": "2.3"}, "problem_type": "crash"}
+    result = _normalize_parsed(parsed)
+    assert "reported_versions" in result
+    assert result["reported_versions"]["torch"] == "2.3"
+    assert "released_versions" not in result
+
+
+def test_normalize_invalid_problem_type():
+    """Invalid problem_type values should be mapped to valid ones."""
+    assert _normalize_parsed({"problem_type": "wrong_different_from_expected_output"})["problem_type"] == "wrong_output"
+    assert _normalize_parsed({"problem_type": "runtime_crash"})["problem_type"] == "crash"
+    assert _normalize_parsed({"problem_type": "build_failure"})["problem_type"] == "install"
+    assert _normalize_parsed({"problem_type": "something_random"})["problem_type"] == "other"
+
+
+def test_normalize_invalid_solution_type():
+    """Invalid solution_type values should be mapped to valid ones."""
+    assert _normalize_parsed({"solution_type": "version_upgrade"})["solution_type"] == "version_change"
+    assert _normalize_parsed({"solution_type": "code_change"})["solution_type"] == "code_fix"
+    assert _normalize_parsed({"solution_type": "random_stuff"})["solution_type"] == "none"
 
 
 # ---------------------------------------------------------------------------
