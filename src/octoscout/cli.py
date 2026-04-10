@@ -284,9 +284,12 @@ def build(
     if extracted_dirs:
         dirs = [data_dir / d for d in extracted_dirs]
     else:
-        # Auto-discover: all extracted* directories
-        dirs = sorted(data_dir.glob("extracted*"))
-        dirs = [d for d in dirs if d.is_dir() and list(d.glob("*.jsonl"))]
+        # Default: use the latest extracted_* directory (highest version suffix)
+        candidates = sorted(
+            [d for d in data_dir.glob("extracted*") if d.is_dir() and list(d.glob("*.jsonl"))],
+            reverse=True,  # extracted_v2 before extracted_v1
+        )
+        dirs = [candidates[0]] if candidates else []
 
     if not dirs:
         console.print("[red]No extracted data found. Run 'octoscout matrix extract' first.[/red]")
