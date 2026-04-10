@@ -312,6 +312,27 @@ class MatrixExtractor:
             related_issues=parsed.get("related_issues", []),
         )
 
+    async def extract_all(self, repo_slugs: list[str] | None = None) -> dict[str, ExtractStats]:
+        """Extract all repos. If repo_slugs is None, discover from raw/ dir."""
+        if repo_slugs is None:
+            raw_dir = self._input_dir / "raw"
+            if not raw_dir.exists():
+                return {}
+            repo_slugs = [
+                p.stem for p in raw_dir.glob("*.jsonl")
+            ]
+
+        results: dict[str, ExtractStats] = {}
+        for slug in repo_slugs:
+            _console.print(f"\n[bold]Extracting {slug}...[/bold]")
+            stats = await self.extract_repo(slug)
+            results[slug] = stats
+            _console.print(
+                f"  Total: {stats.total}, Extracted: {stats.extracted}, "
+                f"Failed: {stats.failed}, Skipped: {stats.skipped}"
+            )
+        return results
+
 
 _VALID_PROBLEM_TYPES = {"crash", "wrong_output", "performance", "install", "other"}
 _VALID_SOLUTION_TYPES = {"version_change", "code_fix", "config_change", "workaround", "none"}
@@ -358,24 +379,3 @@ def _normalize_parsed(parsed: dict) -> dict:
             parsed["solution_type"] = "none"
 
     return parsed
-
-    async def extract_all(self, repo_slugs: list[str] | None = None) -> dict[str, ExtractStats]:
-        """Extract all repos. If repo_slugs is None, discover from raw/ dir."""
-        if repo_slugs is None:
-            raw_dir = self._input_dir / "raw"
-            if not raw_dir.exists():
-                return {}
-            repo_slugs = [
-                p.stem for p in raw_dir.glob("*.jsonl")
-            ]
-
-        results: dict[str, ExtractStats] = {}
-        for slug in repo_slugs:
-            _console.print(f"\n[bold]Extracting {slug}...[/bold]")
-            stats = await self.extract_repo(slug)
-            results[slug] = stats
-            _console.print(
-                f"  Total: {stats.total}, Extracted: {stats.extracted}, "
-                f"Failed: {stats.failed}, Skipped: {stats.skipped}"
-            )
-        return results
