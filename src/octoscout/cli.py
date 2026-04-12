@@ -284,9 +284,9 @@ def build(
     if extracted_dirs:
         dirs = [data_dir / d for d in extracted_dirs]
     else:
-        # Default: use the latest extracted_* directory (highest version suffix)
+        # Default: use the latest extracted_v* directory (highest version suffix)
         candidates = sorted(
-            [d for d in data_dir.glob("extracted*") if d.is_dir() and list(d.glob("*.jsonl"))],
+            [d for d in data_dir.glob("extracted_v*") if d.is_dir() and list(d.glob("*.jsonl"))],
             reverse=True,  # extracted_v2 before extracted_v1
         )
         dirs = [candidates[0]] if candidates else []
