@@ -763,3 +763,359 @@ async def _offer_community_actions(result, traceback_text: str, config, auto_env
                 console.print(
                     f"\n[dim]Create this issue at: https://github.com/{draft.repo}/issues/new[/dim]"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Campaign sub-app
+# ---------------------------------------------------------------------------
+
+campaign_app = typer.Typer(name="campaign", help="Open-issue solving campaign commands.")
+app.add_typer(campaign_app, name="campaign")
+
+
+@campaign_app.command()
+def discover(
+    campaign_id: str = typer.Option("default", "--id", help="Campaign identifier."),
+    repos: list[str] = typer.Option(None, "--repo", "-r", help="Specific repos to crawl. Repeatable."),
+    all_repos: bool = typer.Option(False, "--all", help="Use all default crawl repos."),
+    max_pages: int = typer.Option(5, "--max-pages", help="Max pages per repo (100 issues/page)."),
+    min_comments: int = typer.Option(2, "--min-comments", help="Minimum comment count."),
+    max_age_days: int = typer.Option(90, "--max-age-days", help="Max issue age in days."),
+):
+    """Discover hot open issues from covered repos."""
+    from octoscout.campaign.discovery import discover_open_issues
+    from octoscout.config import Config
+    from octoscout.search.github_client import GitHubClient
+
+    config = Config.load()
+    campaign_dir = Path(config.matrix_data_dir).parent / "campaigns" / campaign_id
+
+    if all_repos:
+        from octoscout.matrix.crawler import DEFAULT_CRAWL_CONFIGS
+        repo_list = [c.repo for c in DEFAULT_CRAWL_CONFIGS]
+    elif repos:
+        repo_list = repos
+    else:
+        console.print("[red]Specify --repo or --all.[/red]")
+        raise typer.Exit(1)
+
+    client = GitHubClient(token=config.github_token)
+
+    async def _run():
+        try:
+            return await discover_open_issues(
+                client, repo_list, campaign_dir,
+                max_pages=max_pages, min_comments=min_comments, max_age_days=max_age_days,
+            )
+        finally:
+            await client.close()
+
+    issues = asyncio.run(_run())
+    console.print(f"\n[bold green]Discovered {len(issues)} open issues.[/bold green]")
+
+    # Summary by category
+    cats = {}
+    for i in issues:
+        cats[i.env_category] = cats.get(i.env_category, 0) + 1
+    for cat, count in sorted(cats.items()):
+        console.print(f"  {cat}: {count}")
+
+
+@campaign_app.command(name="diagnose")
+def campaign_diagnose(
+    campaign_id: str = typer.Option("default", "--id", help="Campaign identifier."),
+    concurrency: int = typer.Option(3, "--concurrency", "-c", help="Max concurrent diagnoses."),
+    limit: int = typer.Option(None, "--limit", "-n", help="Max issues to diagnose."),
+    issue_number: int = typer.Option(None, "--issue", "-i", help="Diagnose a specific issue number."),
+    repo: str = typer.Option(None, "--repo", "-r", help="Filter by repo (with --issue)."),
+    verbose: bool = typer.Option(False, "--verbose", help="Show agent reasoning."),
+):
+    """Batch-diagnose discovered issues."""
+    from octoscout.campaign.diagnosis_runner import batch_diagnose
+    from octoscout.campaign.models import CampaignIssue, read_jsonl
+    from octoscout.config import Config, ConfigError
+
+    config = Config.load()
+    campaign_dir = Path(config.matrix_data_dir).parent / "campaigns" / campaign_id
+
+    try:
+        config._require_claude_key()
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    issues = read_jsonl(campaign_dir / "discovered.jsonl", CampaignIssue)
+    if not issues:
+        console.print("[red]No discovered issues. Run 'octoscout campaign discover' first.[/red]")
+        raise typer.Exit(1)
+
+    # Filter to a specific issue if requested
+    if issue_number:
+        issues = [
+            i for i in issues
+            if i.number == issue_number and (not repo or i.repo == repo)
+        ]
+        if not issues:
+            console.print(f"[red]Issue #{issue_number} not found in discovered issues.[/red]")
+            raise typer.Exit(1)
+    else:
+        # Sort by score and limit
+        issues.sort(key=lambda x: x.discovery_score, reverse=True)
+        if limit:
+            issues = issues[:limit]
+
+    console.print(f"Diagnosing {len(issues)} issues (concurrency={concurrency})...")
+    results = asyncio.run(batch_diagnose(issues, config, campaign_dir, concurrency, verbose))
+
+    concrete = [r for r in results if r.has_concrete_fix]
+    errors = [r for r in results if r.error]
+    console.print(f"\n[bold green]Done.[/bold green] {len(results)} diagnosed, "
+                  f"{len(concrete)} with concrete fix, {len(errors)} errors.")
+
+
+@campaign_app.command()
+def verify(
+    campaign_id: str = typer.Option("default", "--id", help="Campaign identifier."),
+    limit: int = typer.Option(None, "--limit", "-n", help="Max issues to verify."),
+    issue_number: int = typer.Option(None, "--issue", "-i", help="Verify a specific issue number."),
+    level: str = typer.Option("quick", "--level", "-l", help="Verification level: quick/import/reproduce."),
+    timeout: int = typer.Option(300, "--timeout", help="Timeout per verification in seconds."),
+):
+    """Verify diagnosed issues in sandbox environments."""
+    from octoscout.campaign.models import (
+        CampaignIssue,
+        DiagnosisRecord,
+        VerificationRecord,
+        read_jsonl,
+    )
+    from octoscout.campaign.sandbox import verify_diagnosis
+    from octoscout.config import Config
+
+    config = Config.load()
+    campaign_dir = Path(config.matrix_data_dir).parent / "campaigns" / campaign_id
+
+    diagnosed = read_jsonl(campaign_dir / "diagnosed.jsonl", DiagnosisRecord)
+    issues = read_jsonl(campaign_dir / "discovered.jsonl", CampaignIssue)
+    existing = read_jsonl(campaign_dir / "verified.jsonl", VerificationRecord)
+
+    # Deduplicate: keep the latest diagnosis per issue (last entry wins)
+    latest: dict[tuple[str, int], DiagnosisRecord] = {}
+    for d in diagnosed:
+        latest[(d.repo, d.number)] = d
+
+    # Only verify issues with concrete fixes
+    concrete = [d for d in latest.values() if d.has_concrete_fix]
+    done_keys = {(v.repo, v.number) for v in existing}
+    pending = [d for d in concrete if (d.repo, d.number) not in done_keys]
+
+    # Filter to a specific issue if requested
+    if issue_number:
+        pending = [d for d in pending if d.number == issue_number]
+
+    if limit:
+        pending = pending[:limit]
+
+    if not pending:
+        console.print("[yellow]No issues to verify.[/yellow]")
+        raise typer.Exit(0)
+
+    issue_map = {(i.repo, i.number): i for i in issues}
+
+    console.print(f"Verifying {len(pending)} issues at level={level}...")
+
+    async def _run():
+        results = []
+        for record in pending:
+            issue = issue_map.get((record.repo, record.number))
+            if not issue:
+                continue
+            console.print(f"  [{record.repo}#{record.number}] ...", end=" ")
+            result = await verify_diagnosis(record, issue, campaign_dir, level=level, timeout=timeout)
+            status = "[green]PASS[/green]" if result.verified else f"[yellow]{result.broken_result}[/yellow]"
+            console.print(status)
+            results.append(result)
+        return results
+
+    results = asyncio.run(_run())
+    passed = [r for r in results if r.verified]
+    console.print(f"\n[bold green]Done.[/bold green] {len(passed)}/{len(results)} verified.")
+
+
+@campaign_app.command()
+def reply(
+    campaign_id: str = typer.Option("default", "--id", help="Campaign identifier."),
+    dry_run: bool = typer.Option(True, "--dry-run/--post", help="Preview without posting (default: dry-run)."),
+    verified_only: bool = typer.Option(False, "--verified-only", help="Only reply to verified issues."),
+):
+    """Draft and optionally post replies to diagnosed issues."""
+    from rich.panel import Panel
+    from rich.prompt import Confirm
+
+    from octoscout.campaign.models import (
+        CampaignIssue,
+        DiagnosisRecord,
+        VerificationRecord,
+        read_jsonl,
+    )
+    from octoscout.campaign.replier import post_campaign_reply
+    from octoscout.config import Config, ConfigError
+    from octoscout.search.github_client import GitHubClient
+
+    config = Config.load()
+    campaign_dir = Path(config.matrix_data_dir).parent / "campaigns" / campaign_id
+
+    try:
+        config._require_claude_key()
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    diagnosed = read_jsonl(campaign_dir / "diagnosed.jsonl", DiagnosisRecord)
+    issues = read_jsonl(campaign_dir / "discovered.jsonl", CampaignIssue)
+    verified = read_jsonl(campaign_dir / "verified.jsonl", VerificationRecord)
+
+    # Only reply to issues with concrete fixes
+    replyable = [d for d in diagnosed if d.has_concrete_fix]
+
+    issue_map = {(i.repo, i.number): i for i in issues}
+    verif_map = {(v.repo, v.number): v for v in verified}
+
+    if verified_only:
+        replyable = [d for d in replyable if verif_map.get((d.repo, d.number), None) and verif_map[(d.repo, d.number)].verified]
+
+    if not replyable:
+        console.print("[yellow]No issues to reply to.[/yellow]")
+        raise typer.Exit(0)
+
+    provider = config.get_provider()
+    client = GitHubClient(token=config.github_token)
+
+    async def _run():
+        import time
+        results = []
+        try:
+            for record in replyable:
+                issue = issue_map.get((record.repo, record.number))
+                if not issue:
+                    continue
+                verif = verif_map.get((record.repo, record.number))
+
+                result = await post_campaign_reply(
+                    record, issue, verif, provider, client, campaign_dir, dry_run=True,
+                )
+
+                console.print(Panel(
+                    result.comment_body,
+                    title=f"[bold]{issue.repo}#{issue.number}[/bold] — {issue.title[:60]}",
+                    subtitle="DRAFT" if dry_run else "READY TO POST",
+                ))
+
+                if not dry_run:
+                    if Confirm.ask("Post this reply?"):
+                        result = await post_campaign_reply(
+                            record, issue, verif, provider, client, campaign_dir, dry_run=False,
+                        )
+                        if result.posted:
+                            console.print(f"[green]Posted: {result.comment_url}[/green]")
+                        else:
+                            console.print(f"[yellow]Skipped: {result.comment_body[:80]}[/yellow]")
+                        time.sleep(30)  # Rate limit between posts
+
+                results.append(result)
+        finally:
+            await client.close()
+        return results
+
+    results = asyncio.run(_run())
+    posted = [r for r in results if r.posted]
+    console.print(f"\n[bold green]Done.[/bold green] {len(results)} drafted, {len(posted)} posted.")
+
+
+@campaign_app.command()
+def track(
+    campaign_id: str = typer.Option("default", "--id", help="Campaign identifier."),
+):
+    """Check replied issues for reactions, comments, and state changes."""
+    from octoscout.campaign.models import ReplyRecord, read_jsonl
+    from octoscout.campaign.tracker import track_all_replied
+    from octoscout.config import Config
+    from octoscout.search.github_client import GitHubClient
+
+    config = Config.load()
+    campaign_dir = Path(config.matrix_data_dir).parent / "campaigns" / campaign_id
+
+    replied = read_jsonl(campaign_dir / "replied.jsonl", ReplyRecord)
+    posted = [r for r in replied if r.posted]
+
+    if not posted:
+        console.print("[yellow]No posted replies to track.[/yellow]")
+        raise typer.Exit(0)
+
+    client = GitHubClient(token=config.github_token)
+
+    async def _run():
+        try:
+            return await track_all_replied(posted, client, campaign_dir)
+        finally:
+            await client.close()
+
+    snapshots = asyncio.run(_run())
+    positive = [s for s in snapshots if s.has_positive_response]
+    closed = [s for s in snapshots if s.issue_state == "closed"]
+    console.print(f"\n[bold green]Tracked {len(snapshots)} issues.[/bold green] "
+                  f"{len(positive)} positive responses, {len(closed)} closed.")
+
+
+@campaign_app.command()
+def report(
+    campaign_id: str = typer.Option("default", "--id", help="Campaign identifier."),
+    fmt: str = typer.Option("table", "--format", "-f", help="Output format: table, markdown, casebook."),
+):
+    """Generate a summary report of campaign results."""
+    from octoscout.campaign.reporter import (
+        compute_metrics,
+        format_casebook,
+        format_markdown,
+        format_table,
+    )
+    from octoscout.config import Config
+
+    config = Config.load()
+    campaign_dir = Path(config.matrix_data_dir).parent / "campaigns" / campaign_id
+
+    if not campaign_dir.exists():
+        console.print(f"[red]Campaign '{campaign_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    if fmt == "casebook":
+        console.print(format_casebook(campaign_dir))
+    else:
+        metrics = compute_metrics(campaign_dir)
+        if fmt == "markdown":
+            console.print(format_markdown(metrics))
+        else:
+            console.print(format_table(metrics))
+
+
+@campaign_app.command()
+def status(
+    campaign_id: str = typer.Option("default", "--id", help="Campaign identifier."),
+):
+    """Show current campaign status: counts per phase."""
+    from octoscout.campaign.reporter import campaign_status
+    from octoscout.config import Config
+
+    config = Config.load()
+    campaign_dir = Path(config.matrix_data_dir).parent / "campaigns" / campaign_id
+
+    if not campaign_dir.exists():
+        console.print(f"[red]Campaign '{campaign_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    s = campaign_status(campaign_dir)
+    console.print(f"Campaign: [bold]{campaign_id}[/bold]")
+    console.print(f"  Discovered:      {s['discovered']}")
+    console.print(f"  Diagnosed:       {s['diagnosed']} ({s['has_concrete_fix']} with concrete fix)")
+    console.print(f"  Verified:        {s['verified']} ({s['verified_pass']} passed)")
+    console.print(f"  Replied:         {s['replied']} ({s['posted']} posted)")
+    console.print(f"  Tracked:         {s['tracked']}")

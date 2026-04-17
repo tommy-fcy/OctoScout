@@ -60,10 +60,41 @@ class GitHubClient:
             repo: Optional repo filter (e.g. "huggingface/transformers").
             state: Filter by state ("open", "closed").
             per_page: Max results to return.
+
+        Implements fallback strategy for large repos where repo: qualifier
+        causes GitHub Search to timeout (422/504):
+          1. Try repo:owner/name
+          2. Fallback to org:owner + repo name as keyword
         """
+        results = await self._search_issues_inner(query, repo, state, per_page)
+        if results is not None:
+            return results
+
+        # Fallback: repo: qualifier failed — try org: + repo name as keyword
+        if repo and "/" in repo:
+            org, name = repo.split("/", 1)
+            fallback_results = await self._search_issues_inner(
+                f"{query} {name}", None, state, per_page, org=org,
+            )
+            if fallback_results is not None:
+                return fallback_results
+
+        return []
+
+    async def _search_issues_inner(
+        self,
+        query: str,
+        repo: str | None = None,
+        state: str | None = None,
+        per_page: int = 10,
+        org: str | None = None,
+    ) -> list[GitHubIssueRef] | None:
+        """Execute a single search request. Returns None on 422/5xx (retriable)."""
         q_parts = [query]
         if repo:
             q_parts.append(f"repo:{repo}")
+        if org:
+            q_parts.append(f"org:{org}")
         if state:
             q_parts.append(f"state:{state}")
         q = " ".join(q_parts)
@@ -80,6 +111,11 @@ class GitHubClient:
         )
         self._update_rate_limit(resp)
         self._record_search_call()
+
+        # 422 = GitHub can't process (repo too large), 5xx = server error
+        if resp.status_code in (422, 502, 503, 504):
+            return None
+
         resp.raise_for_status()
 
         data = resp.json()

@@ -21,9 +21,22 @@ _EXCEPTION_ONLY_RE = re.compile(r"^(?P<type>[\w.]+)\s*$")
 _SITE_PACKAGES_RE = re.compile(r"[/\\]site-packages[/\\](?P<pkg>[^/\\]+)")
 _STDLIB_PATHS = {str(p) for p in (getattr(sys, "stdlib_module_names", set()))}
 
+# Distributed training prefixes: [rank0]:, (rank 0):, (ServerPid pid=12345)
+_RANK_PREFIX_RE = re.compile(
+    r"^(?:\[rank\d+\]:\s*|\(rank\s*\d+\):\s*|\(\w+ pid=\d+\)\s*)"
+)
+
+
+def _strip_rank_prefixes(text: str) -> str:
+    """Remove distributed training prefixes from each line."""
+    lines = text.splitlines()
+    cleaned = [_RANK_PREFIX_RE.sub("", line) for line in lines]
+    return "\n".join(cleaned)
+
 
 def parse_traceback(text: str) -> ParsedTraceback:
     """Parse a Python traceback string into a structured ParsedTraceback."""
+    text = _strip_rank_prefixes(text)
     lines = text.strip().splitlines()
 
     frames: list[StackFrame] = []
