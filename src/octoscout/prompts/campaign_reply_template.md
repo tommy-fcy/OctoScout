@@ -9,16 +9,24 @@ Write a concise GitHub issue reply based on the diagnosis below.
 ## Verification Results
 {verification_section}
 
-## Related Issues
+## Cited Evidence (verified-relevant issues)
 {related_issues}
 
 ---
 Format requirements:
-1. First line MUST start with **TL;DR:** followed by a copy-pasteable fix command or action
-2. 1-3 sentences explaining the root cause
+1. First line MUST start with **TL;DR:** followed by the MINIMAL fix command.
+   - Include ONLY what the user truly has to change. Do NOT bundle prerequisites
+     ("update your LLaMA-Factory to latest") unless the diagnosis explicitly
+     says the user's current version is broken.
+   - If there are prerequisites that may or may not be met, put them in a short
+     "Prerequisite" note below the TL;DR, not in the TL;DR itself.
+2. 1-3 sentences explaining the root cause.
 3. If verified, add: "✅ Verified in an isolated environment"
-4. Total length < 150 words (excluding footer)
-5. No pleasantries, no filler
+4. ONLY cite the issues listed in "Cited Evidence" above. Do not invent or
+   include any other issue numbers. If "Cited Evidence" is "None", do not
+   include a related-issues section at all.
+5. Total length < 150 words (excluding footer).
+6. No pleasantries, no filler.
 
 Append this footer verbatim:
 ---

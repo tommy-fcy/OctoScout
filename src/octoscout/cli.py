@@ -954,6 +954,7 @@ def reply(
     from octoscout.campaign.models import (
         CampaignIssue,
         DiagnosisRecord,
+        ReplyRecord,
         VerificationRecord,
         read_jsonl,
     )
@@ -973,9 +974,21 @@ def reply(
     diagnosed = read_jsonl(campaign_dir / "diagnosed.jsonl", DiagnosisRecord)
     issues = read_jsonl(campaign_dir / "discovered.jsonl", CampaignIssue)
     verified = read_jsonl(campaign_dir / "verified.jsonl", VerificationRecord)
+    replied_existing = read_jsonl(campaign_dir / "replied.jsonl", ReplyRecord)
+
+    # Deduplicate diagnosed: keep latest per issue
+    latest_diag: dict[tuple[str, int], DiagnosisRecord] = {}
+    for d in diagnosed:
+        latest_diag[(d.repo, d.number)] = d
+
+    # Track which issues already have a successfully posted reply
+    already_posted = {(r.repo, r.number) for r in replied_existing if r.posted}
 
     # Only reply to issues with concrete fixes
-    replyable = [d for d in diagnosed if d.has_concrete_fix]
+    replyable = [d for d in latest_diag.values() if d.has_concrete_fix]
+
+    # Skip already-posted (idempotent resume)
+    replyable = [d for d in replyable if (d.repo, d.number) not in already_posted]
 
     issue_map = {(i.repo, i.number): i for i in issues}
     verif_map = {(v.repo, v.number): v for v in verified}
@@ -984,8 +997,15 @@ def reply(
         replyable = [d for d in replyable if verif_map.get((d.repo, d.number), None) and verif_map[(d.repo, d.number)].verified]
 
     if not replyable:
-        console.print("[yellow]No issues to reply to.[/yellow]")
+        skipped = len(already_posted)
+        if skipped:
+            console.print(f"[yellow]No issues to reply to. ({skipped} already posted, skipped.)[/yellow]")
+        else:
+            console.print("[yellow]No issues to reply to.[/yellow]")
         raise typer.Exit(0)
+
+    if already_posted:
+        console.print(f"[dim]Skipping {len(already_posted)} issue(s) already posted.[/dim]")
 
     provider = config.get_provider()
     client = GitHubClient(token=config.github_token)

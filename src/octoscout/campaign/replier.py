@@ -49,7 +49,11 @@ async def draft_reply(
     else:
         verif_text = "Not verified"
 
-    related = "\n".join(f"- {url}" for url in record.related_issue_urls[:5]) if record.related_issue_urls else "None"
+    # Only cite evidence_sources (issues the diagnosis explicitly cited as
+    # supporting the fix). related_issue_urls contains everything the agent
+    # touched during search, which can include tangentially related issues.
+    cited = record.evidence_sources[:3] if record.evidence_sources else []
+    related = "\n".join(f"- {s}" for s in cited) if cited else "None"
 
     prompt = _REPLY_TEMPLATE.format(
         diagnosis_summary=record.diagnosis_summary[:2000],
